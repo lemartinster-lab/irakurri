@@ -4,6 +4,7 @@ import {
   buildPrompt,
   createSseTextParser,
   MAX_SELECTION_CHARS,
+  modelOptions,
   validateAiRequest,
 } from "@/lib/ai/prompts";
 
@@ -46,7 +47,20 @@ describe("buildPrompt", () => {
     expect(corto.user).toContain("al español");
     expect(largo.user).toContain("al euskera");
     expect(largo.maxTokens).toBeGreaterThan(corto.maxTokens);
-    expect(largo.maxTokens).toBeLessThanOrEqual(4000);
+    expect(largo.maxTokens).toBeLessThanOrEqual(8000);
+  });
+
+  it("deja margen de sobra aunque Claude razone antes de responder", () => {
+    // Con 470 tokens, Sonnet 5.5 los gastaba pensando y la traducción llegaba vacía
+    expect(buildPrompt({ action: "traducir", text: "frase corta", lang: "eu" }).maxTokens).toBeGreaterThanOrEqual(2000);
+    expect(buildPrompt({ action: "explicar", text: "x" }).maxTokens).toBeGreaterThanOrEqual(2000);
+  });
+});
+
+describe("modelOptions", () => {
+  it("pide el razonamiento mínimo a Sonnet 5.5 y no toca otros modelos", () => {
+    expect(modelOptions("claude-sonnet-5-5")).toEqual({ thinking: { type: "between_tools" } });
+    expect(modelOptions("claude-haiku-5-5")).toEqual({});
   });
 });
 
@@ -61,6 +75,11 @@ describe("createSseTextParser", () => {
     const a = p.push(full.slice(0, cut));
     const b = p.push(full.slice(cut));
     expect(a.text + b.text).toBe("Hola mundo");
+  });
+
+  it("captura el motivo de fin (stop_reason)", () => {
+    const p = createSseTextParser();
+    expect(p.push(ev({ type: "message_delta", delta: { stop_reason: "max_tokens" } })).stopReason).toBe("max_tokens");
   });
 
   it("ignora eventos de control y detecta errores", () => {
@@ -123,6 +142,8 @@ describe("POST /api/ai", () => {
     expect(init.headers["x-api-key"]).toBe("sk-test");
     const sent = JSON.parse(init.body);
     expect(sent.stream).toBe(true);
+    expect(sent.model).toBe("claude-sonnet-5-5");
+    expect(sent.thinking).toEqual({ type: "between_tools" });
     expect(sent.messages[0].content).toContain("Kaixo, irakurle.");
   });
 
@@ -155,6 +176,34 @@ describe("POST /api/ai", () => {
       new Promise((resolve) => setTimeout(() => resolve("<<colgado>>"), 2000)),
     ]);
     expect(text).toBe("Kaixo, mundo");
+  });
+
+  it("no da por buena una respuesta que solo trae razonamiento (el fallo de la traducción vacía)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const ev = (o: object) => `data: ${JSON.stringify(o)}\n\n`;
+    const sse =
+      ev({ type: "message_start", message: {} }) +
+      ev({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }) +
+      ev({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "abc" } }) +
+      ev({ type: "content_block_stop", index: 0 }) +
+      ev({ type: "message_delta", delta: { stop_reason: "max_tokens" } }) +
+      ev({ type: "message_stop" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(sse, { status: 200 })));
+    const res = await POST(request({ action: "traducir", text: "frase", lang: "eu" }));
+    await expect(res.text()).rejects.toThrow(/vacía.*max_tokens/);
+  });
+
+  it("usa el modelo de AI_MODEL sin añadir parámetros de Sonnet", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.stubEnv("AI_MODEL", " claude-haiku-5-5 ");
+    const sse = `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "ok" } })}\n\n`;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(sse, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await (await POST(request({ action: "explicar", text: "x" }))).text();
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.model).toBe("claude-haiku-5-5");
+    expect(sent.thinking).toBeUndefined();
   });
 
   it("propaga un error que llega a mitad de la respuesta", async () => {

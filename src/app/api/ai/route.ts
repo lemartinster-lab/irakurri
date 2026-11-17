@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { buildPrompt, createSseTextParser, validateAiRequest } from "@/lib/ai/prompts";
+import { buildPrompt, createSseTextParser, modelOptions, validateAiRequest } from "@/lib/ai/prompts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,6 +48,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!validation.ok) return errorResponse(400, validation.error);
 
   const { system, user, maxTokens } = buildPrompt(validation.value);
+  const model = process.env.AI_MODEL?.trim() || DEFAULT_MODEL;
 
   let upstream: Response;
   try {
@@ -59,7 +60,8 @@ export async function POST(req: Request): Promise<Response> {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: process.env.AI_MODEL || DEFAULT_MODEL,
+        model,
+        ...modelOptions(model),
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: user }],
@@ -86,20 +88,33 @@ export async function POST(req: Request): Promise<Response> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   const reader = upstream.body.getReader();
+  let sentText = false;
+  let stopReason: string | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
     // Importante: cada llamada a pull() debe entregar algo (texto, fin o error).
     // Si vuelve sin entregar nada, el stream no la repite y la respuesta se queda
-    // colgada. Claude envía trozos sin texto (message_start, ping…), así que se
-    // sigue leyendo hasta que haya texto.
+    // colgada. Claude envía trozos sin texto (message_start, ping, razonamiento…),
+    // así que se sigue leyendo hasta que haya texto.
     async pull(controller) {
       try {
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) return controller.close();
-          const { text, error } = parser.push(decoder.decode(value, { stream: true }));
-          if (error) return controller.error(new Error(error));
-          if (text) return controller.enqueue(encoder.encode(text));
+          if (done) {
+            // Nunca devolver una respuesta vacía como si fuera correcta
+            if (!sentText) {
+              console.error("Anthropic API: respuesta sin texto", { model, stopReason });
+              return controller.error(new Error(`Respuesta vacía (${stopReason ?? "sin motivo"})`));
+            }
+            return controller.close();
+          }
+          const parsed = parser.push(decoder.decode(value, { stream: true }));
+          stopReason = parsed.stopReason ?? stopReason;
+          if (parsed.error) return controller.error(new Error(parsed.error));
+          if (parsed.text) {
+            sentText = true;
+            return controller.enqueue(encoder.encode(parsed.text));
+          }
         }
       } catch (err) {
         controller.error(err);

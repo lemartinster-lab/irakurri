@@ -90,7 +90,7 @@ export function buildPrompt(req: AiRequest): BuiltPrompt {
         user:
           `${ctx}${fragment}\n\n` +
           "Explica este fragmento de forma clara: qué significa, el contexto necesario para entenderlo y el sentido de las palabras o referencias difíciles. Máximo 200 palabras.",
-        maxTokens: 700,
+        maxTokens: 2000,
       };
     case "traducir": {
       const lang = LANGUAGES[req.lang ?? "es"];
@@ -100,15 +100,16 @@ export function buildPrompt(req: AiRequest): BuiltPrompt {
           `${ctx}${fragment}\n\n` +
           `Traduce el fragmento al ${lang}, conservando el tono y el registro. Devuelve solo la traducción, sin comentarios. ` +
           `Si el fragmento ya está en ${lang}, dilo en una frase en ${lang}.`,
-        // La traducción puede ocupar más tokens que el original (p. ej. al euskera)
-        maxTokens: Math.min(4000, 400 + Math.ceil(req.text.length / 2)),
+        // La traducción puede ocupar más tokens que el original (p. ej. al euskera).
+        // Margen fijo amplio: si Claude razona antes de responder, también gasta de aquí.
+        maxTokens: Math.min(8000, 2000 + req.text.length),
       };
     }
     case "resumir":
       return {
         system: `${BASE_SYSTEM} Responde siempre en español.`,
         user: `${ctx}${fragment}\n\nResume este fragmento en 2 a 4 frases, sin perder la idea principal.`,
-        maxTokens: 500,
+        maxTokens: 1500,
       };
     case "resumir-seccion":
       return {
@@ -116,9 +117,21 @@ export function buildPrompt(req: AiRequest): BuiltPrompt {
         user:
           `${ctx}${fragment}\n\n` +
           "Este es un capítulo o página completa. Resume primero la idea general en 2 o 3 frases y después enumera los puntos clave con guiones (máximo 6). Máximo 300 palabras.",
-        maxTokens: 1000,
+        maxTokens: 3000,
       };
   }
+}
+
+/**
+ * Parámetros extra según el modelo. Claude Sonnet 5.5 razona por defecto antes de
+ * responder y ese razonamiento consume max_tokens: con límites ajustados la respuesta
+ * podía llegar vacía. Para traducir, explicar o resumir no hace falta: se pide el
+ * nivel mínimo ("between_tools", que sin herramientas equivale a no razonar).
+ * En Sonnet 5.5 "disabled" no está permitido (error 400).
+ */
+export function modelOptions(model: string): Record<string, unknown> {
+  if (model.startsWith("claude-sonnet-5-5")) return { thinking: { type: "between_tools" } };
+  return {};
 }
 
 /**
@@ -129,12 +142,14 @@ export function buildPrompt(req: AiRequest): BuiltPrompt {
 export function createSseTextParser() {
   let buffer = "";
   return {
-    push(chunk: string): { text: string; error?: string } {
+    /** stopReason: motivo de fin que comunica Claude (end_turn, max_tokens, refusal…) */
+    push(chunk: string): { text: string; error?: string; stopReason?: string } {
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       let text = "";
       let error: string | undefined;
+      let stopReason: string | undefined;
       for (const line of lines) {
         if (!line.startsWith("data:")) continue;
         const payload = line.slice(5).trim();
@@ -142,11 +157,13 @@ export function createSseTextParser() {
         try {
           const ev = JSON.parse(payload) as {
             type?: string;
-            delta?: { type?: string; text?: string };
+            delta?: { type?: string; text?: string; stop_reason?: string };
             error?: { message?: string };
           };
           if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
             text += ev.delta.text;
+          } else if (ev.type === "message_delta" && ev.delta?.stop_reason) {
+            stopReason = ev.delta.stop_reason;
           } else if (ev.type === "error") {
             error = ev.error?.message ?? "Error del servicio de IA";
           }
@@ -154,7 +171,7 @@ export function createSseTextParser() {
           /* línea incompleta o de control: se ignora */
         }
       }
-      return { text, error };
+      return { text, error, stopReason };
     },
   };
 }

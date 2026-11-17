@@ -42,6 +42,8 @@ export function messageForStatus(status: number): string {
 
 const OFFLINE_MESSAGE = "Sin conexión a Internet. La lectura funciona sin red, pero la IA la necesita.";
 const TIMEOUT_MESSAGE = "Claude no ha empezado a responder a tiempo. Inténtalo de nuevo.";
+const EMPTY_MESSAGE = "Claude no ha devuelto ningún texto esta vez. Pulsa Reintentar.";
+const INTERRUPTED_MESSAGE = "La respuesta de Claude se interrumpió. Pulsa Reintentar.";
 
 /** Llama a /api/ai y va entregando el texto a medida que llega. Devuelve el texto completo. */
 export async function askAi(
@@ -99,8 +101,11 @@ export async function askAi(
         onText(full);
       }
     } catch (err) {
-      return fail(err);
+      if (timedOut || signal?.aborted) return fail(err);
+      // Ya había respuesta del servidor: no es falta de conexión, es un corte o una respuesta vacía
+      throw new AiError(full ? INTERRUPTED_MESSAGE : EMPTY_MESSAGE, "other");
     }
+    if (!full.trim()) throw new AiError(EMPTY_MESSAGE, "other");
     return full;
   } finally {
     clearTimeout(timer);
