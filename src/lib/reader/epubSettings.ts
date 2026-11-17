@@ -25,12 +25,19 @@ export const FONT_SIZE_MIN = 70;
 export const FONT_SIZE_MAX = 200;
 export const FONT_SIZE_STEP = 10;
 export const LINE_HEIGHTS = [1.3, 1.5, 1.8] as const;
+export const LINE_HEIGHT_LABELS: Record<(typeof LINE_HEIGHTS)[number], string> = {
+  1.3: "Estrecho",
+  1.5: "Normal",
+  1.8: "Amplio",
+};
 
 export const THEME_COLORS: Record<EpubTheme, { background: string; text: string; link: string }> = {
   claro: { background: "#ffffff", text: "#1f1d1a", link: "#b5452f" },
   sepia: { background: "#f4ecd8", text: "#5b4636", link: "#9c4a2f" },
   oscuro: { background: "#16161a", text: "#d9d6d0", link: "#e0745c" },
 };
+
+export const FONT_LABELS: Record<EpubFont, string> = { serif: "Clásica", sans: "Moderna" };
 
 export const FONT_STACKS: Record<EpubFont, string> = {
   serif: 'Georgia, "Iowan Old Style", "Times New Roman", serif',

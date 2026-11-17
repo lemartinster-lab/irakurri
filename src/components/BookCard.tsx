@@ -31,7 +31,7 @@ export function BookCard({ book, onDelete }: { book: Book; onDelete: (book: Book
           <img src={coverUrl} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full flex-col justify-between p-3 font-serif">
-            <span className="line-clamp-5 text-sm font-semibold leading-snug">{book.title}</span>
+            <span className="line-clamp-5 hyphens-auto text-sm font-semibold leading-snug [overflow-wrap:anywhere]">{book.title}</span>
             <span className="line-clamp-2 text-xs text-muted">{book.author}</span>
           </div>
         )}

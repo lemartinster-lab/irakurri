@@ -9,8 +9,10 @@ import {
   chapterLabel,
   clampFontSize,
   FONT_SIZE_STEP,
+  FONT_LABELS,
   FONT_STACKS,
   flattenToc,
+  LINE_HEIGHT_LABELS,
   LINE_HEIGHTS,
   parseSettings,
   THEME_COLORS,
@@ -22,10 +24,10 @@ import { detectSwipe } from "@/lib/reader/pdfNav";
 import type { Annotation, Book, HighlightColor } from "@/lib/types";
 import {
   AnnotationEditor,
-  AnnotationsPanel,
+  AnnotationsList,
   BookmarkIcon,
-  NotesIcon,
   SelectionToolbar,
+  SidePanel,
   useAnnotations,
   type SelectionAiAction,
 } from "./annotations";
@@ -394,8 +396,11 @@ export function EpubReader({ book }: { book: Book }) {
       (b) => isVisible(b.location),
     );
   };
-  const btn = "rounded-md px-2.5 py-1.5 text-sm hover:bg-black/10 disabled:opacity-35";
-  const bar = `absolute inset-x-0 z-20 flex items-center gap-2 px-3 transition-opacity duration-200 ${
+  const label = "mb-2 text-xs font-medium uppercase tracking-wide opacity-60";
+  const option = "min-w-0 rounded-lg border px-1.5 py-2.5 text-sm";
+  const optionStyle = (active: boolean) => ({ borderColor: active ? colors.link : "rgba(128,128,128,.3)", borderWidth: active ? 2 : 1 });
+  const btn = "shrink-0 rounded-md px-2 py-1.5 text-sm hover:bg-black/10 disabled:opacity-35";
+  const bar = `absolute inset-x-0 z-20 flex items-center gap-1 px-2 transition-opacity duration-200 ${
     barsVisible || panel ? "opacity-100" : "pointer-events-none opacity-0"
   }`;
 
@@ -421,13 +426,15 @@ export function EpubReader({ book }: { book: Book }) {
         >
           <BookmarkIcon filled={bookmarked} />
         </button>
-        <button type="button" className={btn} onClick={() => setPanel("notes")} aria-label="Notas y marcadores">
-          <NotesIcon />
-        </button>
         <button type="button" className={btn} onClick={summarizeChapter} disabled={!ready} aria-label="Resumir este capítulo con IA">
           ✨
         </button>
-        <button type="button" className={btn} onClick={() => setPanel(panel === "toc" ? null : "toc")} aria-label="Índice" disabled={!toc.length}>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => setPanel(panel === "toc" || panel === "notes" ? null : toc.length ? "toc" : "notes")}
+          aria-label="Índice y notas"
+        >
           ☰
         </button>
         <button type="button" className={`${btn} font-serif`} onClick={() => setPanel(panel === "settings" ? null : "settings")} aria-label="Ajustes de lectura">
@@ -516,67 +523,80 @@ export function EpubReader({ book }: { book: Book }) {
         />
       )}
 
-      {panel === "notes" && (
-        <AnnotationsPanel
-          annotations={annotations}
-          palette={palette}
-          locationLabel={(a) => `${Math.round(a.order * 100)} %`}
-          onGo={(a) => goTo(a.location)}
-          onEdit={(a) => {
-            setPanel(null);
-            setEditing(a);
-          }}
-          onClose={() => setPanel(null)}
-        />
-      )}
-
       {editing && <AnnotationEditor key={editing.id} annotation={editing} palette={palette} onClose={() => setEditing(null)} />}
 
-      {/* Fondo para cerrar paneles */}
-      {panel && panel !== "notes" &&<button type="button" className="absolute inset-0 z-30 bg-black/30" aria-label="Cerrar" onClick={() => setPanel(null)} />}
-
-      {/* Índice */}
-      {panel === "toc" && (
-        <nav
-          className="absolute inset-y-0 left-0 z-40 w-[85%] max-w-sm overflow-y-auto p-4 shadow-xl"
-          style={{ background: colors.background }}
-          aria-label="Índice"
+      {/* Índice y notas: un solo panel con pestañas para no recargar la cabecera */}
+      {(panel === "toc" || panel === "notes") && (
+        <SidePanel
+          side="left"
+          tabs={[
+            ["toc", "Índice"],
+            ["notes", annotations.length ? `Notas (${annotations.length})` : "Notas"],
+          ] as const}
+          activeTab={panel}
+          onTab={setPanel}
+          palette={palette}
+          onClose={() => setPanel(null)}
         >
-          <h2 className="mb-3 font-serif text-lg font-bold">Índice</h2>
-          <ul>
-            {toc.map((item, i) => {
-              const active = item.label === chapter;
-              return (
-                <li key={`${item.href}-${i}`}>
-                  <button
-                    type="button"
-                    onClick={() => goTo(item.href)}
-                    className={`w-full rounded px-2 py-2 text-left text-sm hover:bg-black/10 ${active ? "font-semibold" : ""}`}
-                    style={{ paddingLeft: 8 + item.depth * 16, color: active ? colors.link : undefined }}
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+          {panel === "toc" ? (
+            <ul className="flex-1 overflow-y-auto px-2 pb-6">
+              {toc.length === 0 && <li className="px-3 py-8 text-center text-sm opacity-60">Este libro no tiene índice.</li>}
+              {toc.map((item, i) => {
+                const active = item.label === chapter;
+                return (
+                  <li key={`${item.href}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => goTo(item.href)}
+                      className={`w-full rounded px-2 py-2 text-left text-sm hover:bg-black/10 ${active ? "font-semibold" : ""}`}
+                      style={{ paddingLeft: 8 + item.depth * 16, color: active ? colors.link : undefined }}
+                    >
+                      {item.label}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <AnnotationsList
+              annotations={annotations}
+              palette={palette}
+              locationLabel={(a) => `${Math.round(a.order * 100)} %`}
+              onGo={(a) => goTo(a.location)}
+              onEdit={(a) => {
+                setPanel(null);
+                setEditing(a);
+              }}
+            />
+          )}
+        </SidePanel>
+      )}
+
+      {/* Fondo para cerrar los ajustes */}
+      {panel === "settings" && (
+        <button type="button" className="absolute inset-0 z-30 bg-black/30" aria-label="Cerrar" onClick={() => setPanel(null)} />
       )}
 
       {/* Ajustes */}
       {panel === "settings" && (
         <section
-          className="absolute inset-x-0 bottom-0 z-40 mx-auto max-w-lg space-y-5 rounded-t-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
+          className="absolute inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] max-w-lg space-y-5 overflow-y-auto rounded-t-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
           style={{ background: colors.background }}
           aria-label="Ajustes de lectura"
         >
+          <header className="-mb-1 flex items-center justify-between">
+            <h2 className="font-serif text-lg font-bold">Ajustes de lectura</h2>
+            <button type="button" className={btn} onClick={() => setPanel(null)} aria-label="Cerrar ajustes">
+              ✕
+            </button>
+          </header>
           <div className="flex gap-3">
             {(Object.keys(THEME_COLORS) as EpubTheme[]).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => updateSettings({ theme: t })}
-                className="flex-1 rounded-lg border-2 py-3 text-sm capitalize"
+                className="min-w-0 flex-1 rounded-lg border-2 px-1 py-3 text-sm capitalize"
                 style={{
                   background: THEME_COLORS[t].background,
                   color: THEME_COLORS[t].text,
@@ -589,47 +609,53 @@ export function EpubReader({ book }: { book: Book }) {
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="w-24 text-sm opacity-70">Tamaño</span>
-            <button type="button" className={`${btn} border border-current/20`} onClick={() => updateSettings({ fontSize: settings.fontSize - FONT_SIZE_STEP })} aria-label="Letra más pequeña">
-              A−
-            </button>
-            <span className="w-14 text-center text-sm tabular-nums">{settings.fontSize} %</span>
-            <button type="button" className={`${btn} border border-current/20 text-base`} onClick={() => updateSettings({ fontSize: settings.fontSize + FONT_SIZE_STEP })} aria-label="Letra más grande">
-              A+
-            </button>
+          <div>
+            <p className={label}>Tamaño de letra</p>
+            <div className="flex items-center gap-3">
+              <button type="button" className={`${option} w-16`} style={optionStyle(false)} onClick={() => updateSettings({ fontSize: settings.fontSize - FONT_SIZE_STEP })} aria-label="Letra más pequeña">
+                A−
+              </button>
+              <span className="flex-1 text-center tabular-nums">{settings.fontSize} %</span>
+              <button type="button" className={`${option} w-16 text-lg`} style={optionStyle(false)} onClick={() => updateSettings({ fontSize: settings.fontSize + FONT_SIZE_STEP })} aria-label="Letra más grande">
+                A+
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="w-24 text-sm opacity-70">Letra</span>
-            {(["serif", "sans"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => updateSettings({ font: f })}
-                className={`${btn} border`}
-                style={{ fontFamily: FONT_STACKS[f], borderColor: settings.font === f ? colors.link : "rgba(128,128,128,.3)" }}
-                aria-pressed={settings.font === f}
-              >
-                {f === "serif" ? "Con remate" : "Sin remate"}
-              </button>
-            ))}
+          <div>
+            <p className={label}>Tipo de letra</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["serif", "sans"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => updateSettings({ font: f })}
+                  className={option}
+                  style={{ ...optionStyle(settings.font === f), fontFamily: FONT_STACKS[f] }}
+                  aria-pressed={settings.font === f}
+                >
+                  {FONT_LABELS[f]}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="w-24 text-sm opacity-70">Interlineado</span>
-            {LINE_HEIGHTS.map((lh) => (
-              <button
-                key={lh}
-                type="button"
-                onClick={() => updateSettings({ lineHeight: lh })}
-                className={`${btn} border tabular-nums`}
-                style={{ borderColor: settings.lineHeight === lh ? colors.link : "rgba(128,128,128,.3)" }}
-                aria-pressed={settings.lineHeight === lh}
-              >
-                {lh}
-              </button>
-            ))}
+          <div>
+            <p className={label}>Interlineado</p>
+            <div className="grid grid-cols-3 gap-2">
+              {LINE_HEIGHTS.map((lh) => (
+                <button
+                  key={lh}
+                  type="button"
+                  onClick={() => updateSettings({ lineHeight: lh })}
+                  className={option}
+                  style={optionStyle(settings.lineHeight === lh)}
+                  aria-pressed={settings.lineHeight === lh}
+                >
+                  {LINE_HEIGHT_LABELS[lh]}
+                </button>
+              ))}
+            </div>
           </div>
         </section>
       )}

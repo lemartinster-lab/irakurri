@@ -206,25 +206,81 @@ export function AnnotationEditor({
   );
 }
 
-/** Panel lateral con todos los marcadores, subrayados y notas del libro. */
-export function AnnotationsPanel({
+/** Panel lateral genérico, con pestañas opcionales (p. ej. Índice / Notas). */
+export function SidePanel<T extends string>({
+  title,
+  side = "right",
+  tabs,
+  activeTab,
+  onTab,
+  palette,
+  onClose,
+  children,
+}: {
+  title?: string;
+  side?: "left" | "right";
+  tabs?: readonly (readonly [T, string])[];
+  activeTab?: T;
+  onTab?: (tab: T) => void;
+  palette: ReaderPalette;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <button type="button" className="fixed inset-0 z-40 bg-black/30" aria-label="Cerrar" onClick={onClose} />
+      <aside
+        className={`fixed inset-y-0 ${side === "left" ? "left-0" : "right-0"} z-50 flex w-[88%] max-w-sm flex-col shadow-xl`}
+        style={{ background: palette.background, color: palette.text }}
+        aria-label={title ?? tabs?.find(([k]) => k === activeTab)?.[1]}
+      >
+        <header className="flex items-center gap-2 p-4 pb-2">
+          {tabs ? (
+            <div role="tablist" className="flex flex-1 gap-1">
+              {tabs.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === key}
+                  onClick={() => onTab?.(key)}
+                  className="flex-1 rounded-lg px-3 py-2 font-serif text-base font-bold"
+                  style={activeTab === key ? { background: palette.accent, color: "white" } : { opacity: 0.7 }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <h2 className="flex-1 font-serif text-lg font-bold">{title}</h2>
+          )}
+          <button type="button" className={iconBtn} onClick={onClose} aria-label="Cerrar panel">
+            ✕
+          </button>
+        </header>
+        {children}
+      </aside>
+    </>
+  );
+}
+
+/** Lista de marcadores, subrayados y notas del libro, con filtros. */
+export function AnnotationsList({
   annotations,
   palette,
   locationLabel,
   onGo,
   onEdit,
-  onClose,
 }: {
   annotations: Annotation[];
   palette: ReaderPalette;
   locationLabel: (a: Annotation) => string;
   onGo: (a: Annotation) => void;
   onEdit: (a: Annotation) => void;
-  onClose: () => void;
 }) {
   const [filter, setFilter] = useState<"todo" | "bookmark" | "highlight">("todo");
   const shown = filter === "todo" ? annotations : annotations.filter((a) => a.kind === filter);
-  const tabs = [
+  const filters = [
     ["todo", "Todo"],
     ["highlight", "Subrayados"],
     ["bookmark", "Marcadores"],
@@ -232,61 +288,60 @@ export function AnnotationsPanel({
 
   return (
     <>
-      <button type="button" className="fixed inset-0 z-40 bg-black/30" aria-label="Cerrar" onClick={onClose} />
-      <aside
-        className="fixed inset-y-0 right-0 z-50 flex w-[88%] max-w-sm flex-col shadow-xl"
-        style={{ background: palette.background, color: palette.text }}
-        aria-label="Notas y marcadores"
-      >
-        <header className="flex items-center justify-between p-4 pb-2">
-          <h2 className="font-serif text-lg font-bold">Notas y marcadores</h2>
-          <button type="button" className={iconBtn} onClick={onClose} aria-label="Cerrar panel">
-            ✕
+      <div className="flex flex-wrap gap-1 px-4 pb-2">
+        {filters.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilter(key)}
+            className="rounded-full px-3 py-1 text-xs"
+            style={filter === key ? { background: palette.accent, color: "white" } : { border: "1px solid rgba(128,128,128,.35)" }}
+          >
+            {label}
           </button>
-        </header>
-        <div className="flex gap-1 px-4 pb-2">
-          {tabs.map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFilter(key)}
-              className="rounded-full px-3 py-1 text-xs"
-              style={filter === key ? { background: palette.accent, color: "white" } : { border: "1px solid rgba(128,128,128,.35)" }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        ))}
+      </div>
 
-        <ul className="flex-1 overflow-y-auto px-2 pb-6">
-          {shown.length === 0 && (
-            <li className="px-3 py-8 text-center text-sm opacity-60">
-              {annotations.length === 0
-                ? "Selecciona texto para subrayarlo, o pulsa el marcador para guardar la página."
-                : "No hay nada en esta categoría."}
-            </li>
-          )}
-          {shown.map((a) => (
-            <li key={a.id} className="group flex items-start gap-2 rounded-lg px-2 py-3 hover:bg-black/5">
-              <span
-                className="mt-1 h-10 w-1.5 shrink-0 rounded-full"
-                style={{ background: a.kind === "bookmark" ? palette.accent : HIGHLIGHT_COLORS[a.color ?? "amarillo"].fill }}
-                aria-hidden
-              />
-              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onGo(a)}>
-                <p className="text-xs opacity-60">
-                  {a.kind === "bookmark" ? "Marcador" : "Subrayado"} · {locationLabel(a)}
-                </p>
-                <p className={`mt-0.5 line-clamp-3 text-sm ${a.kind === "highlight" ? "font-serif" : ""}`}>{excerpt(a.text, 200)}</p>
-                {a.note && <p className="mt-1 line-clamp-3 text-sm italic opacity-80">✎ {a.note}</p>}
-              </button>
-              <button type="button" className={`${iconBtn} shrink-0 text-xs`} onClick={() => onEdit(a)} aria-label="Editar">
-                ✎
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
+      <ul className="flex-1 overflow-y-auto px-2 pb-6">
+        {shown.length === 0 && (
+          <li className="px-3 py-8 text-center text-sm opacity-60">
+            {annotations.length === 0
+              ? "Selecciona texto para subrayarlo, o pulsa el marcador para guardar la página."
+              : "No hay nada en esta categoría."}
+          </li>
+        )}
+        {shown.map((a) => (
+          <li key={a.id} className="group flex items-start gap-2 rounded-lg px-2 py-3 hover:bg-black/5">
+            <span
+              className="mt-1 h-10 w-1.5 shrink-0 rounded-full"
+              style={{ background: a.kind === "bookmark" ? palette.accent : HIGHLIGHT_COLORS[a.color ?? "amarillo"].fill }}
+              aria-hidden
+            />
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onGo(a)}>
+              <p className="text-xs opacity-60">
+                {a.kind === "bookmark" ? "Marcador" : "Subrayado"} · {locationLabel(a)}
+              </p>
+              <p className={`mt-0.5 line-clamp-3 text-sm ${a.kind === "highlight" ? "font-serif" : ""}`}>{excerpt(a.text, 200)}</p>
+              {a.note && <p className="mt-1 line-clamp-3 text-sm italic opacity-80">✎ {a.note}</p>}
+            </button>
+            <button type="button" className={`${iconBtn} shrink-0 text-xs`} onClick={() => onEdit(a)} aria-label="Editar">
+              ✎
+            </button>
+          </li>
+        ))}
+      </ul>
     </>
+  );
+}
+
+/** Panel lateral con todos los marcadores, subrayados y notas del libro (lector de PDF). */
+export function AnnotationsPanel({
+  onClose,
+  ...listProps
+}: React.ComponentProps<typeof AnnotationsList> & { onClose: () => void }) {
+  return (
+    <SidePanel title="Notas y marcadores" palette={listProps.palette} onClose={onClose}>
+      <AnnotationsList {...listProps} />
+    </SidePanel>
   );
 }

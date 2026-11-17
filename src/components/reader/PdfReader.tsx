@@ -328,7 +328,7 @@ export function PdfReader({ book }: { book: Book }) {
   };
 
   const barClass = `fixed inset-x-0 z-20 flex items-center gap-1 border-border bg-surface/95 px-2 backdrop-blur transition-transform duration-200`;
-  const btn = "rounded-md px-2.5 py-1.5 text-sm hover:bg-border disabled:opacity-40";
+  const btn = "shrink-0 rounded-md px-2 py-1.5 text-sm hover:bg-border disabled:opacity-40";
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background">
