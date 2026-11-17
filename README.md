@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Irakurri
 
-## Getting Started
+Lector de libros **PDF y EPUB** como aplicación web instalable. Los libros se guardan solo en el dispositivo (IndexedDB); no hay servidor ni cuentas.
 
-First, run the development server:
+## Stack
+
+- Next.js 15 (App Router) + TypeScript + Tailwind CSS 4
+- [pdf.js](https://mozilla.github.io/pdf.js/) (`pdfjs-dist`) para PDF
+- [epub.js](https://github.com/futurepress/epub.js) para EPUB
+- [Dexie](https://dexie.org/) sobre IndexedDB para la biblioteca
+- Vitest + fake-indexeddb para tests
+
+## Scripts
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev        # desarrollo en http://localhost:3000
+npm run typecheck  # tsc --noEmit
+npm test           # vitest
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Estructura
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+src/app/            páginas: biblioteca (/) y lector (/leer/[id])
+src/components/     Library, BookCard
+src/lib/db.ts       base de datos local y operaciones
+src/lib/import.ts   importación de archivos
+src/lib/metadata/   extracción de título, autor y portada (PDF/EPUB)
+tests/              tests unitarios
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Hoja de ruta
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. ✅ Base y biblioteca (importar, metadatos, portadas)
+2. Lector de PDF (zoom, páginas, recordar posición)
+3. Lector de EPUB (capítulos, tipografía, temas)
+4. Marcadores y subrayados con notas
+5. IA con Claude (resumir, traducir, explicar)
+6. PWA instalable y despliegue en Vercel
