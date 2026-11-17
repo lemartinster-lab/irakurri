@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/db";
 import type { Book } from "@/lib/types";
@@ -18,8 +17,9 @@ const EpubReader = dynamic(() => import("@/components/reader/EpubReader").then((
   loading: () => <p className="mt-24 text-center text-muted">Abriendo…</p>,
 });
 
-export default function ReaderPage() {
-  const { id } = useParams<{ id: string }>();
+/** Lee ?id= de la URL. La página /leer es estática para que funcione sin conexión. */
+export function ReaderView() {
+  const id = useSearchParams().get("id") ?? "";
   // Se lee una sola vez: el lector guarda el progreso y no debe recargarse por ello.
   // undefined = cargando; null = no existe
   const [book, setBook] = useState<Book | null | undefined>(undefined);
@@ -40,9 +40,9 @@ export default function ReaderPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-muted">Este libro ya no está en la biblioteca.</p>
-      <Link href="/" className="text-accent underline">
+      <a href="/" className="text-accent underline">
         ← Volver a la biblioteca
-      </Link>
+      </a>
     </main>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import type { Contents, Book as EpubBook, EpubCFI, Location, Rendition } from "epubjs";
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_SECTION_CHARS } from "@/lib/ai/prompts";
 import { addAnnotation, HIGHLIGHT_COLORS, toggleBookmark, type NewAnnotation } from "@/lib/annotations";
@@ -404,9 +403,9 @@ export function EpubReader({ book }: { book: Book }) {
     <div className="relative h-[100dvh] overflow-hidden" style={{ background: colors.background, color: colors.text }}>
       {/* Barra superior */}
       <header className={`${bar} top-0 h-14`}>
-        <Link href="/" className={btn} aria-label="Volver a la biblioteca">
+        <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
-        </Link>
+        </a>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium">{book.title}</h1>
           {chapter && <p className="truncate text-xs opacity-60">{chapter}</p>}
@@ -449,9 +448,9 @@ export function EpubReader({ book }: { book: Book }) {
         {error && (
           <div className="absolute inset-0 mt-16 px-6 text-center">
             <p className="font-medium">{error}</p>
-            <Link href="/" className="mt-4 inline-block underline" style={{ color: colors.link }}>
+            <a href="/" className="mt-4 inline-block underline" style={{ color: colors.link }}>
               Volver a la biblioteca
-            </Link>
+            </a>
           </div>
         )}
       </div>

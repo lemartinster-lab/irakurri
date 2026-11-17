@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatProgress } from "@/lib/format";
 import type { Book } from "@/lib/types";
@@ -22,8 +21,8 @@ export function BookCard({ book, onDelete }: { book: Book; onDelete: (book: Book
 
   return (
     <article className="group relative flex flex-col">
-      <Link
-        href={`/leer/${book.id}`}
+      <a
+        href={`/leer?id=${encodeURIComponent(book.id)}`}
         className="relative block aspect-[2/3] overflow-hidden rounded-md border border-border bg-surface shadow-sm transition group-hover:shadow-md"
         aria-label={`Abrir ${book.title}`}
       >
@@ -44,7 +43,7 @@ export function BookCard({ book, onDelete }: { book: Book; onDelete: (book: Book
             <div className="h-full bg-accent" style={{ width: `${book.progress * 100}%` }} />
           </div>
         )}
-      </Link>
+      </a>
 
       <div className="mt-2 flex items-start gap-1">
         <div className="min-w-0 flex-1">

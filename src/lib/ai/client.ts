@@ -34,12 +34,21 @@ export async function askAi(
   request: AiRequest,
   { onText, signal }: { onText: (full: string) => void; signal?: AbortSignal },
 ): Promise<string> {
-  const res = await fetch("/api/ai", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-irakurri-code": getAccessCode() },
-    body: JSON.stringify(request),
-    signal,
-  });
+  const offline = new AiError("Sin conexión a Internet. La lectura funciona sin red, pero la IA la necesita.", "other");
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw offline;
+
+  let res: Response;
+  try {
+    res = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-irakurri-code": getAccessCode() },
+      body: JSON.stringify(request),
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw offline; // fallo de red (TypeError "Failed to fetch")
+  }
 
   if (!res.ok || !res.body) {
     const { error } = (await res.json().catch(() => ({}))) as { error?: string };

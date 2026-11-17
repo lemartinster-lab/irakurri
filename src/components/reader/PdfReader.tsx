@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask, TextLayer } from "pdfjs-dist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_SECTION_CHARS } from "@/lib/ai/prompts";
@@ -335,9 +334,9 @@ export function PdfReader({ book }: { book: Book }) {
     <div className="h-[100dvh] overflow-hidden bg-background">
       {/* Barra superior */}
       <header className={`${barClass} top-0 h-14 border-b ${barsVisible || panel ? "" : "-translate-y-full"}`}>
-        <Link href="/" className={btn} aria-label="Volver a la biblioteca">
+        <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
-        </Link>
+        </a>
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{book.title}</h1>
         <button
           type="button"
@@ -398,9 +397,9 @@ export function PdfReader({ book }: { book: Book }) {
         {error ? (
           <div className="mx-auto mt-16 max-w-sm px-6 text-center">
             <p className="font-medium">{error}</p>
-            <Link href="/" className="mt-4 inline-block text-accent underline">
+            <a href="/" className="mt-4 inline-block text-accent underline">
               Volver a la biblioteca
-            </Link>
+            </a>
           </div>
         ) : (
           <div className="flex min-w-fit justify-center px-4" onClick={onPageClick}>

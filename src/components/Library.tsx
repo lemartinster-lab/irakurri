@@ -1,10 +1,11 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { db, deleteBook, sortBooks } from "@/lib/db";
 import { formatSize } from "@/lib/format";
 import { importFiles } from "@/lib/import";
+import { isStandalone, onLaunchFiles, requestPersistentStorage, type BeforeInstallPromptEvent } from "@/lib/pwa";
 import type { Book } from "@/lib/types";
 import { BookCard } from "./BookCard";
 
@@ -15,12 +16,16 @@ export function Library() {
   const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
   const handleFiles = useCallback(async (list: FileList | File[] | null) => {
     const files = list ? Array.from(list) : [];
     if (files.length === 0) return;
     setBusy(true);
     setMessage(null);
     try {
+      // Proteger la biblioteca frente a limpiezas automáticas del navegador
+      void requestPersistentStorage();
       const { imported, rejected } = await importFiles(files);
       const parts: string[] = [];
       if (imported.length) parts.push(`${imported.length} libro(s) añadido(s)`);
@@ -31,6 +36,29 @@ export function Library() {
       if (inputRef.current) inputRef.current.value = "";
     }
   }, []);
+
+  // Ofrecer "Instalar" cuando el navegador lo permite, y abrir archivos con "Abrir con… Irakurri"
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      if (!isStandalone()) setInstallPrompt(e as BeforeInstallPromptEvent);
+    };
+    const onInstalled = () => setInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    onLaunchFiles((files) => void handleFiles(files));
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, [handleFiles]);
+
+  const install = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
 
   const handleDelete = useCallback(async (book: Book) => {
     if (window.confirm(`¿Eliminar «${book.title}» de la biblioteca?`)) {
@@ -63,6 +91,15 @@ export function Library() {
               : `${books.length} libro(s)${books.length ? ` · ${formatSize(totalSize)}` : ""}`}
           </p>
         </div>
+        {installPrompt && (
+          <button
+            type="button"
+            onClick={() => void install()}
+            className="ml-auto rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-surface"
+          >
+            Instalar
+          </button>
+        )}
         <button
           type="button"
           onClick={() => inputRef.current?.click()}

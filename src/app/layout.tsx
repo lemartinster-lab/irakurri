@@ -4,6 +4,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Irakurri",
   description: "Lector de libros PDF y EPUB. Tus libros se guardan solo en tu dispositivo.",
+  applicationName: "Irakurri",
+  // iPhone/iPad: "Añadir a pantalla de inicio" desde Safari abre como app a pantalla completa
+  appleWebApp: { capable: true, title: "Irakurri", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
