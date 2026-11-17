@@ -41,6 +41,10 @@ export async function markOpened(id: string, database: IrakurriDB = db): Promise
   await database.books.update(id, { lastOpenedAt: Date.now() });
 }
 
+export async function saveEpubLocations(id: string, locations: string, database: IrakurriDB = db): Promise<void> {
+  await database.books.update(id, { epubLocations: locations });
+}
+
 export async function saveProgress(
   id: string,
   progress: number,

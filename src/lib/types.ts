@@ -18,6 +18,8 @@ export interface Book {
   progress: number;
   /** Posición guardada: número de página (PDF) o CFI (EPUB) */
   location?: string;
+  /** EPUB: mapa de posiciones calculado una vez (es lento) y reutilizado al reabrir */
+  epubLocations?: string;
 }
 
 export interface ExtractedMetadata {

@@ -13,6 +13,11 @@ const PdfReader = dynamic(() => import("@/components/reader/PdfReader").then((m)
   loading: () => <p className="mt-24 text-center text-muted">Abriendo…</p>,
 });
 
+const EpubReader = dynamic(() => import("@/components/reader/EpubReader").then((m) => m.EpubReader), {
+  ssr: false,
+  loading: () => <p className="mt-24 text-center text-muted">Abriendo…</p>,
+});
+
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>();
   // Se lee una sola vez: el lector guarda el progreso y no debe recargarse por ello.
@@ -30,18 +35,11 @@ export default function ReaderPage() {
   if (book === undefined) return <p className="mt-24 text-center text-muted">Cargando…</p>;
 
   if (book?.format === "pdf") return <PdfReader key={book.id} book={book} />;
+  if (book?.format === "epub") return <EpubReader key={book.id} book={book} />;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
-      {book === null ? (
-        <p className="text-muted">Este libro ya no está en la biblioteca.</p>
-      ) : (
-        <>
-          <h1 className="font-serif text-2xl font-bold">{book.title}</h1>
-          <p className="text-muted">{book.author}</p>
-          <p className="text-sm text-muted">El lector de EPUB estará disponible en la fase 3.</p>
-        </>
-      )}
+      <p className="text-muted">Este libro ya no está en la biblioteca.</p>
       <Link href="/" className="text-accent underline">
         ← Volver a la biblioteca
       </Link>

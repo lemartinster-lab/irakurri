@@ -6,6 +6,9 @@ export async function extractEpubMetadata(file: Blob): Promise<ExtractedMetadata
   const book = ePub(await file.arrayBuffer());
 
   try {
+    // Esperar a que epub.js termine TODA la carga interna (índice, opciones…):
+    // si se destruye antes, sus promesas pendientes fallan con errores en consola.
+    await book.ready;
     const metadata = await book.loaded.metadata;
     let cover: Blob | undefined;
 

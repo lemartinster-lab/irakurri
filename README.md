@@ -34,7 +34,7 @@ tests/              tests unitarios
 
 1. ✅ Base y biblioteca (importar, metadatos, portadas)
 2. ✅ Lector de PDF (zoom, páginas, gestos, modo noche, recordar posición)
-3. Lector de EPUB (capítulos, tipografía, temas)
+3. ✅ Lector de EPUB (índice, tipografía, temas claro/sepia/oscuro, progreso)
 4. Marcadores y subrayados con notas
 5. IA con Claude (resumir, traducir, explicar)
 6. PWA instalable y despliegue en Vercel
