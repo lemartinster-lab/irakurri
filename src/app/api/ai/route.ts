@@ -13,9 +13,12 @@ function errorResponse(status: number, error: string) {
 
 /** Comparación en tiempo constante para que el código no se pueda adivinar midiendo tiempos. */
 function sameCode(given: string | null, expected: string): boolean {
-  if (!given) return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
+  // Se ignoran espacios y saltos de línea en los extremos: al pegar el código en
+  // Vercel o al escribirlo en el móvil es fácil que se cuele uno invisible
+  const g = given?.trim();
+  if (!g) return false;
+  const a = Buffer.from(g);
+  const b = Buffer.from(expected.trim());
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -30,8 +33,8 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Protección opcional: sin ella, cualquiera que conozca la URL gastaría tu saldo
-  const accessCode = process.env.IRAKURRI_ACCESS_CODE;
-  if (accessCode && !sameCode(req.headers.get("x-irakurri-code"), accessCode)) {
+  const accessCode = process.env.IRAKURRI_ACCESS_CODE?.trim();
+  if (accessCode &&!sameCode(req.headers.get("x-irakurri-code"), accessCode)) {
     return errorResponse(401, "Código de acceso incorrecto.");
   }
 
@@ -85,13 +88,19 @@ export async function POST(req: Request): Promise<Response> {
   const reader = upstream.body.getReader();
 
   const stream = new ReadableStream<Uint8Array>({
+    // Importante: cada llamada a pull() debe entregar algo (texto, fin o error).
+    // Si vuelve sin entregar nada, el stream no la repite y la respuesta se queda
+    // colgada. Claude envía trozos sin texto (message_start, ping…), así que se
+    // sigue leyendo hasta que haya texto.
     async pull(controller) {
       try {
-        const { done, value } = await reader.read();
-        if (done) return controller.close();
-        const { text, error } = parser.push(decoder.decode(value, { stream: true }));
-        if (text) controller.enqueue(encoder.encode(text));
-        if (error) controller.error(new Error(error));
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return controller.close();
+          const { text, error } = parser.push(decoder.decode(value, { stream: true }));
+          if (error) return controller.error(new Error(error));
+          if (text) return controller.enqueue(encoder.encode(text));
+        }
       } catch (err) {
         controller.error(err);
       }

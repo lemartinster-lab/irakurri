@@ -126,6 +126,55 @@ describe("POST /api/ai", () => {
     expect(sent.messages[0].content).toContain("Kaixo, irakurle.");
   });
 
+  it("no se cuelga cuando Claude envía trozos sin texto (como en producción)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    const ev = (o: object) => `event: x\ndata: ${JSON.stringify(o)}\n\n`;
+    const delta = (t: string) => ev({ type: "content_block_delta", delta: { type: "text_delta", text: t } });
+    // Un evento por trozo de red, empezando por eventos de control sin texto
+    const chunks = [
+      ev({ type: "message_start", message: {} }),
+      ev({ type: "content_block_start", index: 0 }),
+      ev({ type: "ping" }),
+      delta("Kaixo, "),
+      ev({ type: "ping" }),
+      delta("mundo"),
+      ev({ type: "message_stop" }),
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        const enc = new TextEncoder();
+        for (const ch of chunks) c.enqueue(enc.encode(ch));
+        c.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const res = await POST(request({ action: "explicar", text: "x" }));
+    const text = await Promise.race([
+      res.text(),
+      new Promise((resolve) => setTimeout(() => resolve("<<colgado>>"), 2000)),
+    ]);
+    expect(text).toBe("Kaixo, mundo");
+  });
+
+  it("propaga un error que llega a mitad de la respuesta", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    const sse =
+      `data: ${JSON.stringify({ type: "message_start" })}\n\n` +
+      `data: ${JSON.stringify({ type: "error", error: { message: "Overloaded" } })}\n\n`;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(sse, { status: 200 })));
+    const res = await POST(request({ action: "explicar", text: "x" }));
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  it("acepta el código aunque en Vercel se guardara con espacios o salto de línea", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.stubEnv("IRAKURRI_ACCESS_CODE", "  liburua2026\n");
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 200 })));
+    expect((await POST(request({ action: "explicar", text: "x" }, "liburua2026"))).status).toBe(200);
+    expect((await POST(request({ action: "explicar", text: "x" }, " liburua2026 "))).status).toBe(200);
+  });
+
   it("traduce los errores de Anthropic a mensajes comprensibles", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -133,5 +182,14 @@ describe("POST /api/ai", () => {
     const res = await POST(request({ action: "resumir", text: "x" }));
     expect(res.status).toBe(429);
     expect((await res.json()).error).toContain("Espera");
+  });
+});
+
+describe("messageForStatus", () => {
+  it("explica en español los errores sin cuerpo JSON", async () => {
+    const { messageForStatus } = await import("@/lib/ai/client");
+    expect(messageForStatus(504)).toContain("tardó demasiado");
+    expect(messageForStatus(502)).toContain("problema");
+    expect(messageForStatus(418)).toContain("418");
   });
 });

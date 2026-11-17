@@ -42,6 +42,7 @@ export function AiSheet({ request, heading, palette, onClose, onSaveNote }: AiSh
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
   const [code, setCode] = useState(getAccessCode);
+  const [showCode, setShowCode] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -148,14 +149,32 @@ export function AiSheet({ request, heading, palette, onClose, onSaveNote }: AiSh
             >
               <p className="text-sm">Esta instalación de Irakurri pide un código de acceso para usar la IA.</p>
               {error && <p className="text-sm text-red-600">{error}</p>}
-              <input
-                type="password"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="Código de acceso"
-                autoFocus
-                className="w-full rounded-lg border border-black/15 bg-transparent p-3 text-sm"
-              />
+              <div className="relative">
+                <input
+                  type={showCode ? "text" : "password"}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Código de acceso"
+                  autoFocus
+                  // Evitar que el gestor de contraseñas o el teclado cambien lo que se escribe
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  className="w-full rounded-lg border border-black/15 bg-transparent p-3 pr-12 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCode((v) => !v)}
+                  className="absolute inset-y-0 right-0 px-3 text-lg opacity-70 hover:opacity-100"
+                  aria-label={showCode ? "Ocultar código" : "Mostrar código"}
+                  aria-pressed={showCode}
+                >
+                  {showCode ? "🙈" : "👁"}
+                </button>
+              </div>
               <button type="submit" className="rounded-full px-5 py-2 text-sm font-semibold text-white" style={{ background: palette.accent }}>
                 Guardar y continuar
               </button>
