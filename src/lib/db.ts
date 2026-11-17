@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
-import type { Book } from "./types";
+import type { Annotation, Book } from "./types";
 
 /**
  * Base de datos local (IndexedDB). Los libros nunca salen del dispositivo.
@@ -7,11 +7,16 @@ import type { Book } from "./types";
  */
 export class IrakurriDB extends Dexie {
   books!: EntityTable<Book, "id">;
+  annotations!: EntityTable<Annotation, "id">;
 
   constructor(name = "irakurri") {
     super(name);
     this.version(1).stores({
       books: "id, title, author, format, addedAt, lastOpenedAt",
+    });
+    // v2: marcadores y subrayados
+    this.version(2).stores({
+      annotations: "id, bookId, [bookId+kind], createdAt",
     });
   }
 }
@@ -32,8 +37,12 @@ export function sortBooks(books: Book[]): Book[] {
   });
 }
 
+/** Borra el libro junto con sus marcadores y subrayados. */
 export async function deleteBook(id: string, database: IrakurriDB = db): Promise<void> {
-  await database.books.delete(id);
+  await database.transaction("rw", database.books, database.annotations, async () => {
+    await database.annotations.where("bookId").equals(id).delete();
+    await database.books.delete(id);
+  });
 }
 
 /** Registra la apertura para que el libro suba al principio de la biblioteca. */

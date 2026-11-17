@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask, TextLayer } from "pdfjs-dist";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { addAnnotation, HIGHLIGHT_COLORS, hitTest, normalizeRects, toggleBookmark } from "@/lib/annotations";
 import { markOpened, saveProgress } from "@/lib/db";
 import { loadPdfjs } from "@/lib/metadata/pdf";
 import {
@@ -15,10 +16,21 @@ import {
   zoomIn,
   zoomOut,
 } from "@/lib/reader/pdfNav";
-import type { Book } from "@/lib/types";
+import type { Annotation, Book, HighlightColor } from "@/lib/types";
+import {
+  AnnotationEditor,
+  AnnotationsPanel,
+  BookmarkIcon,
+  NotesIcon,
+  SelectionToolbar,
+  useAnnotations,
+  type ReaderPalette,
+} from "./annotations";
 
 const NIGHT_KEY = "irakurri:pdf-night";
 const PAGE_PADDING = 16;
+const NIGHT_FILTER = "invert(0.9) hue-rotate(180deg)";
+const PALETTE: ReaderPalette = { background: "var(--surface)", text: "var(--foreground)", accent: "var(--accent)" };
 
 function readNightPref(): boolean {
   try {
@@ -35,21 +47,40 @@ function errorMessage(err: unknown): string {
   return "No se pudo abrir el PDF.";
 }
 
+/** Texto seleccionado dentro de la página, si lo hay. */
+function pageSelection(container: HTMLElement | null): Selection | null {
+  const sel = window.getSelection();
+  if (!container || !sel || sel.isCollapsed || !sel.toString().trim()) return null;
+  return container.contains(sel.anchorNode) ? sel : null;
+}
+
 export function PdfReader({ book }: { book: Book }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [pageSize, setPageSize] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
   const [barsVisible, setBarsVisible] = useState(true);
   // El lector se carga solo en el navegador (ssr: false), así que localStorage existe
   const [night, setNight] = useState(readNightPref);
+  const [panel, setPanel] = useState<null | "view" | "notes">(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [editing, setEditing] = useState<Annotation | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const annotations = useAnnotations(book.id);
+  const pageHighlights = useMemo(
+    () => annotations.filter((a) => a.kind === "highlight" && a.location === String(page)),
+    [annotations, page],
+  );
+  const bookmarked = annotations.some((a) => a.kind === "bookmark" && a.location === String(page));
 
   const toggleNight = () =>
     setNight((n) => {
@@ -97,34 +128,51 @@ export function PdfReader({ book }: { book: Book }) {
     return () => ro.disconnect();
   }, []);
 
-  // 3. Dibujar la página actual. Se dibuja en un lienzo nuevo y se sustituye al
-  //    terminar, para evitar parpadeos; si cambia la página a mitad, se cancela.
+  // 3. Dibujar la página y su capa de texto. Se prepara todo fuera de pantalla y se
+  //    sustituye al terminar (sin parpadeos); si cambia la página a mitad, se cancela.
   useEffect(() => {
     if (!doc || containerWidth <= 0) return;
     let cancelled = false;
     let task: RenderTask | undefined;
+    let textLayer: TextLayer | undefined;
     setRendering(true);
 
     (async () => {
+      const pdfjs = await loadPdfjs();
       const pdfPage = await doc.getPage(page);
       if (cancelled) return;
       const base = pdfPage.getViewport({ scale: 1 });
       const scale = fitScale(containerWidth, base.width) * zoom;
+      const cssViewport = pdfPage.getViewport({ scale });
       const dpr = window.devicePixelRatio || 1;
       const viewport = pdfPage.getViewport({ scale: scale * dpr });
+      const w = Math.floor(cssViewport.width);
+      const h = Math.floor(cssViewport.height);
 
       const canvas = document.createElement("canvas");
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
-      canvas.style.width = `${Math.floor(viewport.width / dpr)}px`;
-      canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
-      canvas.className = "block bg-white shadow-md";
+      canvas.style.cssText = `position:absolute;inset:0;width:${w}px;height:${h}px`;
+      canvas.className = "pdf-canvas";
       canvas.setAttribute("aria-label", `Página ${page}`);
 
+      const textDiv = document.createElement("div");
+      textDiv.className = "textLayer";
+      textDiv.style.setProperty("--total-scale-factor", String(scale));
+      textDiv.style.setProperty("--scale-round-x", "1px");
+      textDiv.style.setProperty("--scale-round-y", "1px");
+
       task = pdfPage.render({ canvas, viewport });
-      await task.promise;
+      textLayer = new pdfjs.TextLayer({
+        textContentSource: pdfPage.streamTextContent(),
+        container: textDiv,
+        viewport: cssViewport,
+      });
+      // Si la capa de texto falla (PDF escaneado sin texto), la página se ve igual
+      await Promise.all([task.promise, textLayer.render().catch(() => undefined)]);
       if (cancelled) return;
-      hostRef.current?.replaceChildren(canvas);
+      hostRef.current?.replaceChildren(canvas, textDiv);
+      setPageSize({ w, h });
       setRendering(false);
     })().catch((err) => {
       if (err instanceof Error && err.name === "RenderingCancelledException") return;
@@ -137,12 +185,14 @@ export function PdfReader({ book }: { book: Book }) {
     return () => {
       cancelled = true;
       task?.cancel();
+      textLayer?.cancel();
     };
   }, [doc, page, zoom, containerWidth]);
 
-  // Al cambiar de página, volver arriba
+  // Al cambiar de página, volver arriba y olvidar la selección
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
+    window.getSelection()?.removeAllRanges();
   }, [page]);
 
   // 4. Guardar la posición (con un pequeño retardo para no escribir en cada salto rápido)
@@ -154,6 +204,13 @@ export function PdfReader({ book }: { book: Book }) {
     return () => clearTimeout(t);
   }, [book.id, page, numPages]);
 
+  // 5. Detectar selección de texto en la página
+  useEffect(() => {
+    const onChange = () => setHasSelection(pageSelection(pageRef.current) !== null);
+    document.addEventListener("selectionchange", onChange);
+    return () => document.removeEventListener("selectionchange", onChange);
+  }, []);
+
   const go = useCallback(
     (delta: number) => setPage((p) => clampPage(p + delta, numPages)),
     [numPages],
@@ -162,7 +219,7 @@ export function PdfReader({ book }: { book: Book }) {
   // Teclado (escritorio)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowRight" || e.key === "PageDown") go(1);
       else if (e.key === "ArrowLeft" || e.key === "PageUp") go(-1);
       else if (e.key === "+" || e.key === "=") setZoom(zoomIn);
@@ -175,8 +232,42 @@ export function PdfReader({ book }: { book: Book }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [go]);
 
-  // Toque: tercio izquierdo = atrás, derecho = adelante, centro = mostrar/ocultar barras
+  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+    const sel = pageSelection(pageRef.current);
+    const pageEl = pageRef.current;
+    if (!sel || !pageEl || !numPages) return;
+    const rects = normalizeRects(Array.from(sel.getRangeAt(0).getClientRects()), pageEl.getBoundingClientRect());
+    const text = sel.toString().trim();
+    sel.removeAllRanges();
+    setHasSelection(false);
+    if (!rects.length) return;
+    const created = await addAnnotation({
+      bookId: book.id,
+      kind: "highlight",
+      location: String(page),
+      order: (page - 1 + rects[0].y) / numPages,
+      text,
+      color,
+      rects,
+    });
+    if (withNote) setEditing(created);
+  };
+
+  const onToggleBookmark = () =>
+    void toggleBookmark(
+      { bookId: book.id, location: String(page), order: (page - 1) / Math.max(1, numPages), text: `Página ${page}` },
+      (b) => b.location === String(page),
+    );
+
+  // Toque: sobre un subrayado = editarlo; tercio izquierdo/derecho = pasar página; centro = barras
   const onPageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (pageSelection(pageRef.current)) return;
+    const pageEl = pageRef.current;
+    if (pageEl) {
+      const r = pageEl.getBoundingClientRect();
+      const hit = hitTest(pageHighlights, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      if (hit) return setEditing(hit);
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     if (zoom <= 1 && x < 0.25) go(-1);
@@ -190,50 +281,67 @@ export function PdfReader({ book }: { book: Book }) {
   const onTouchEnd = (e: React.TouchEvent) => {
     const start = touchStart.current;
     touchStart.current = null;
-    // Con zoom la página se desplaza en horizontal: el deslizamiento no debe pasar página
-    if (!start || zoom > 1) return;
+    // Con zoom la página se desplaza en horizontal; al seleccionar texto el dedo también se mueve
+    if (!start || zoom > 1 || pageSelection(pageRef.current)) return;
     const t = e.changedTouches[0];
     const swipe = detectSwipe(t.clientX - start.x, t.clientY - start.y);
     if (swipe) go(swipe === "next" ? 1 : -1);
   };
 
-  const barClass = `fixed inset-x-0 z-20 flex items-center gap-2 border-border bg-surface/95 px-3 backdrop-blur transition-transform duration-200`;
+  const barClass = `fixed inset-x-0 z-20 flex items-center gap-1 border-border bg-surface/95 px-2 backdrop-blur transition-transform duration-200`;
   const btn = "rounded-md px-2.5 py-1.5 text-sm hover:bg-border disabled:opacity-40";
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background">
       {/* Barra superior */}
-      <header
-        className={`${barClass} top-0 h-14 border-b ${barsVisible ? "" : "-translate-y-full"}`}
-      >
+      <header className={`${barClass} top-0 h-14 border-b ${barsVisible || panel ? "" : "-translate-y-full"}`}>
         <Link href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
         </Link>
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{book.title}</h1>
-        <button type="button" className={btn} onClick={() => setZoom(zoomOut)} aria-label="Reducir">
-          −
-        </button>
-        <button
-          type="button"
-          className={`${btn} min-w-14 tabular-nums`}
-          onClick={() => setZoom(DEFAULT_ZOOM)}
-          title="Ajustar a la anchura"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button type="button" className={btn} onClick={() => setZoom(zoomIn)} aria-label="Ampliar">
-          +
-        </button>
         <button
           type="button"
           className={btn}
-          onClick={toggleNight}
-          aria-pressed={night}
-          title={night ? "Modo día" : "Modo noche"}
+          onClick={onToggleBookmark}
+          disabled={!numPages}
+          aria-pressed={bookmarked}
+          aria-label={bookmarked ? "Quitar marcador" : "Añadir marcador"}
+          style={bookmarked ? { color: "var(--accent)" } : undefined}
         >
-          {night ? "☀" : "☾"}
+          <BookmarkIcon filled={bookmarked} />
+        </button>
+        <button type="button" className={btn} onClick={() => setPanel("notes")} aria-label="Notas y marcadores">
+          <NotesIcon />
+        </button>
+        <button
+          type="button"
+          className={`${btn} font-serif`}
+          onClick={() => setPanel(panel === "view" ? null : "view")}
+          aria-label="Vista"
+          aria-expanded={panel === "view"}
+        >
+          Aa
         </button>
       </header>
+
+      {/* Menú de vista: zoom y modo noche */}
+      {panel === "view" && (
+        <div className="fixed right-2 top-16 z-30 flex items-center gap-1 rounded-xl border border-border bg-surface p-2 shadow-lg">
+          <button type="button" className={btn} onClick={() => setZoom(zoomOut)} aria-label="Reducir">
+            −
+          </button>
+          <button type="button" className={`${btn} min-w-14 tabular-nums`} onClick={() => setZoom(DEFAULT_ZOOM)} title="Ajustar a la anchura">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button type="button" className={btn} onClick={() => setZoom(zoomIn)} aria-label="Ampliar">
+            +
+          </button>
+          <span className="mx-1 h-6 w-px bg-border" />
+          <button type="button" className={btn} onClick={toggleNight} aria-pressed={night} title={night ? "Modo día" : "Modo noche"}>
+            {night ? "☀" : "☾"}
+          </button>
+        </div>
+      )}
 
       {/* Página */}
       <div
@@ -242,6 +350,7 @@ export function PdfReader({ book }: { book: Book }) {
         style={{ paddingTop: 72, paddingBottom: 96 }}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
+        onClick={() => panel === "view" && setPanel(null)}
       >
         {error ? (
           <div className="mx-auto mt-16 max-w-sm px-6 text-center">
@@ -253,10 +362,33 @@ export function PdfReader({ book }: { book: Book }) {
         ) : (
           <div className="flex min-w-fit justify-center px-4" onClick={onPageClick}>
             <div
-              ref={hostRef}
-              className={`transition-opacity ${rendering ? "opacity-70" : ""}`}
-              style={night ? { filter: "invert(0.9) hue-rotate(180deg)" } : undefined}
-            />
+              ref={pageRef}
+              className={`relative bg-white shadow-md transition-opacity ${rendering ? "opacity-70" : ""}`}
+              style={pageSize ? { width: pageSize.w, height: pageSize.h } : undefined}
+            >
+              {/* Lienzo + capa de texto (los inserta pdf.js) */}
+              <div ref={hostRef} className="absolute inset-0" style={night ? { filter: NIGHT_FILTER } : undefined} />
+              {/* Subrayados: entre el dibujo y la capa de texto, para no impedir la selección */}
+              <div className="pointer-events-none absolute inset-0 z-[1]" aria-hidden>
+                {pageHighlights.flatMap((a) =>
+                  (a.rects ?? []).map((r, i) => (
+                    <div
+                      key={`${a.id}-${i}`}
+                      className="absolute rounded-[2px]"
+                      style={{
+                        left: `${r.x * 100}%`,
+                        top: `${r.y * 100}%`,
+                        width: `${r.w * 100}%`,
+                        height: `${r.h * 100}%`,
+                        background: HIGHLIGHT_COLORS[a.color ?? "amarillo"].fill,
+                        opacity: night ? 0.35 : 0.4,
+                        mixBlendMode: night ? "normal" : "multiply",
+                      }}
+                    />
+                  )),
+                )}
+              </div>
+            </div>
             {!doc && <p className="mt-16 text-muted">Abriendo…</p>}
           </div>
         )}
@@ -265,7 +397,7 @@ export function PdfReader({ book }: { book: Book }) {
       {/* Barra inferior */}
       {numPages > 0 && (
         <footer
-          className={`${barClass} bottom-0 h-16 border-t pb-[env(safe-area-inset-bottom)] ${barsVisible ? "" : "translate-y-full"}`}
+          className={`${barClass} bottom-0 h-16 border-t pb-[env(safe-area-inset-bottom)] ${barsVisible || panel ? "" : "translate-y-full"}`}
         >
           <button type="button" className={btn} onClick={() => go(-1)} disabled={page <= 1} aria-label="Página anterior">
             ‹
@@ -287,6 +419,33 @@ export function PdfReader({ book }: { book: Book }) {
           </button>
         </footer>
       )}
+
+      {hasSelection && !editing && (
+        <SelectionToolbar
+          palette={PALETTE}
+          onHighlight={(c, withNote) => void createHighlight(c, withNote)}
+          onCancel={() => window.getSelection()?.removeAllRanges()}
+        />
+      )}
+
+      {panel === "notes" && (
+        <AnnotationsPanel
+          annotations={annotations}
+          palette={PALETTE}
+          locationLabel={(a) => `Pág. ${a.location}`}
+          onGo={(a) => {
+            setPanel(null);
+            setPage(clampPage(Number(a.location), numPages));
+          }}
+          onEdit={(a) => {
+            setPanel(null);
+            setEditing(a);
+          }}
+          onClose={() => setPanel(null)}
+        />
+      )}
+
+      {editing && <AnnotationEditor key={editing.id} annotation={editing} palette={PALETTE} onClose={() => setEditing(null)} />}
     </div>
   );
 }

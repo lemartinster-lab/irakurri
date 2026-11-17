@@ -1,8 +1,9 @@
 "use client";
 
-import type { Book as EpubBook, Location, Rendition } from "epubjs";
+import type { Contents, Book as EpubBook, EpubCFI, Location, Rendition } from "epubjs";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { addAnnotation, HIGHLIGHT_COLORS, toggleBookmark } from "@/lib/annotations";
 import { markOpened, saveEpubLocations, saveProgress } from "@/lib/db";
 import {
   chapterLabel,
@@ -18,7 +19,15 @@ import {
   type FlatTocItem,
 } from "@/lib/reader/epubSettings";
 import { detectSwipe } from "@/lib/reader/pdfNav";
-import type { Book } from "@/lib/types";
+import type { Annotation, Book, HighlightColor } from "@/lib/types";
+import {
+  AnnotationEditor,
+  AnnotationsPanel,
+  BookmarkIcon,
+  NotesIcon,
+  SelectionToolbar,
+  useAnnotations,
+} from "./annotations";
 
 const SETTINGS_KEY = "irakurri:epub-settings";
 /** Caracteres por "posición": equilibrio entre precisión del progreso y tiempo de cálculo. */
@@ -77,8 +86,19 @@ export function EpubReader({ book }: { book: Book }) {
   const [percent, setPercent] = useState<number | null>(null);
   const [atStart, setAtStart] = useState(false);
   const [atEnd, setAtEnd] = useState(false);
-  const [panel, setPanel] = useState<null | "toc" | "settings">(null);
+  const [panel, setPanel] = useState<null | "toc" | "settings" | "notes">(null);
   const [barsVisible, setBarsVisible] = useState(true);
+  const [visibleRange, setVisibleRange] = useState<{ start: string; end: string } | null>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [editing, setEditing] = useState<Annotation | null>(null);
+
+  const annotations = useAnnotations(book.id);
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
+  const cfiRef = useRef<EpubCFI | null>(null);
+  const pendingSelection = useRef<{ cfiRange: string; contents: Contents } | null>(null);
+  /** Subrayados ya dibujados en epub.js: id → datos con los que se dibujó */
+  const drawn = useRef(new Map<string, { cfi: string; color?: HighlightColor; theme: EpubTheme }>());
 
   const next = useCallback(() => void renditionRef.current?.next(), []);
   const prev = useCallback(() => void renditionRef.current?.prev(), []);
@@ -116,10 +136,11 @@ export function EpubReader({ book }: { book: Book }) {
     };
 
     (async () => {
-      const { default: ePub } = await import("epubjs");
+      const { default: ePub, EpubCFI: CFI } = await import("epubjs");
       const epub = ePub(await book.file.arrayBuffer());
       if (cancelled || !hostRef.current) return epub.destroy();
       epubRef.current = epub;
+      cfiRef.current = new CFI();
 
       const rendition = epub.renderTo(hostRef.current, {
         width: "100%",
@@ -134,6 +155,7 @@ export function EpubReader({ book }: { book: Book }) {
 
       rendition.on("relocated", (loc: Location) => {
         lastCfi.current = loc.start.cfi;
+        setVisibleRange({ start: loc.start.cfi, end: loc.end.cfi });
         setCurrentHref(loc.start.href);
         setAtStart(loc.atStart);
         setAtEnd(loc.atEnd);
@@ -145,6 +167,21 @@ export function EpubReader({ book }: { book: Book }) {
         scheduleSave();
       });
 
+      // Selección de texto para subrayar
+      rendition.on("selected", (cfiRange: string, contents: Contents) => {
+        pendingSelection.current = { cfiRange, contents };
+        setHasSelection(true);
+      });
+      rendition.hooks.content.register((contents: Contents) => {
+        contents.document.addEventListener("selectionchange", () => {
+          const sel = contents.window.getSelection();
+          if (!sel || sel.isCollapsed) {
+            pendingSelection.current = null;
+            setHasSelection(false);
+          }
+        });
+      });
+
       // Los eventos dentro del libro ocurren en un iframe: se reenvían aquí
       rendition.on("keydown", onKey);
       rendition.on("click", (e: MouseEvent) => {
@@ -152,7 +189,16 @@ export function EpubReader({ book }: { book: Book }) {
         if (view?.getSelection()?.toString()) return; // seleccionando texto
         if ((e.target as Element | null)?.closest?.("a")) return; // enlace interno
         const frame = view?.frameElement;
-        if (frame) handleTapAt(frame.getBoundingClientRect().left + e.clientX);
+        if (!frame) return;
+        const fr = frame.getBoundingClientRect();
+        const x = fr.left + e.clientX;
+        const y = fr.top + e.clientY;
+        // Toque sobre un subrayado: lo gestiona epub.js (abre el editor), no es navegación
+        const onHighlight = Array.from(document.querySelectorAll("g.irk-highlight rect")).some((r) => {
+          const b = r.getBoundingClientRect();
+          return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
+        });
+        if (!onHighlight) handleTapAt(x);
       });
       rendition.on("touchstart", (e: TouchEvent) => {
         const t = e.touches[0];
@@ -161,7 +207,8 @@ export function EpubReader({ book }: { book: Book }) {
       rendition.on("touchend", (e: TouchEvent) => {
         const start = touchStart.current;
         touchStart.current = null;
-        if (!start) return;
+        // Al seleccionar texto el dedo también se desplaza: no es un paso de página
+        if (!start || (e.view as Window | null)?.getSelection()?.toString()) return;
         const t = e.changedTouches[0];
         const swipe = detectSwipe(t.screenX - start.x, t.screenY - start.y);
         if (swipe === "next") next();
@@ -234,8 +281,84 @@ export function EpubReader({ book }: { book: Book }) {
     void renditionRef.current?.display(target);
   };
 
+  // 4. Dibujar los subrayados guardados (y redibujar si cambian de color o de tema)
+  const theme = settings.theme;
+  useEffect(() => {
+    const rendition = renditionRef.current;
+    if (!ready || !rendition) return;
+    const wanted = new Map(annotations.filter((a) => a.kind === "highlight").map((a) => [a.id, a]));
+
+    for (const [id, d] of drawn.current) {
+      const a = wanted.get(id);
+      if (!a || a.color !== d.color || d.theme !== theme) {
+        rendition.annotations.remove(d.cfi, "highlight");
+        drawn.current.delete(id);
+      }
+    }
+    for (const a of wanted.values()) {
+      if (drawn.current.has(a.id)) continue;
+      rendition.annotations.highlight(
+        a.location,
+        { id: a.id },
+        () => setEditing(annotationsRef.current.find((x) => x.id === a.id) ?? null),
+        "irk-highlight",
+        {
+          fill: HIGHLIGHT_COLORS[a.color ?? "amarillo"].fill,
+          "fill-opacity": theme === "oscuro" ? "0.3" : "0.4",
+          "mix-blend-mode": theme === "oscuro" ? "normal" : "multiply",
+        },
+      );
+      drawn.current.set(a.id, { cfi: a.location, color: a.color, theme });
+    }
+  }, [annotations, ready, theme]);
+
+  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+    const pending = pendingSelection.current;
+    const rendition = renditionRef.current;
+    if (!pending || !rendition) return;
+    const text = rendition.getRange(pending.cfiRange)?.toString().trim() ?? "";
+    pending.contents.window.getSelection()?.removeAllRanges();
+    pendingSelection.current = null;
+    setHasSelection(false);
+    if (!text) return;
+    const order = locationsReadyRef.current
+      ? epubRef.current!.locations.percentageFromCfi(pending.cfiRange)
+      : lastProgress.current;
+    const created = await addAnnotation({
+      bookId: book.id,
+      kind: "highlight",
+      location: pending.cfiRange,
+      order: Number.isFinite(order) ? order : lastProgress.current,
+      text,
+      color,
+    });
+    if (withNote) setEditing(created);
+  };
+
+  /** ¿La posición `cfi` está en la pantalla que se ve ahora? */
+  const isVisible = (cfi: string) => {
+    const c = cfiRef.current;
+    if (!c || !visibleRange) return false;
+    try {
+      return c.compare(visibleRange.start, cfi) <= 0 && c.compare(cfi, visibleRange.end) <= 0;
+    } catch {
+      return false;
+    }
+  };
+  const bookmarked = annotations.some((a) => a.kind === "bookmark" && isVisible(a.location));
+
   const colors = THEME_COLORS[settings.theme];
+  const palette = { background: colors.background, text: colors.text, accent: colors.link };
   const chapter = chapterLabel(toc, currentHref);
+
+  const onToggleBookmark = () => {
+    if (!visibleRange) return;
+    const pct = Math.round(lastProgress.current * 100);
+    void toggleBookmark(
+      { bookId: book.id, location: visibleRange.start, order: lastProgress.current, text: `${chapter ?? "Marcador"} · ${pct} %` },
+      (b) => isVisible(b.location),
+    );
+  };
   const btn = "rounded-md px-2.5 py-1.5 text-sm hover:bg-black/10 disabled:opacity-35";
   const bar = `absolute inset-x-0 z-20 flex items-center gap-2 px-3 transition-opacity duration-200 ${
     barsVisible || panel ? "opacity-100" : "pointer-events-none opacity-0"
@@ -252,6 +375,20 @@ export function EpubReader({ book }: { book: Book }) {
           <h1 className="truncate text-sm font-medium">{book.title}</h1>
           {chapter && <p className="truncate text-xs opacity-60">{chapter}</p>}
         </div>
+        <button
+          type="button"
+          className={btn}
+          onClick={onToggleBookmark}
+          disabled={!visibleRange}
+          aria-pressed={bookmarked}
+          aria-label={bookmarked ? "Quitar marcador" : "Añadir marcador"}
+          style={bookmarked ? { color: colors.link } : undefined}
+        >
+          <BookmarkIcon filled={bookmarked} />
+        </button>
+        <button type="button" className={btn} onClick={() => setPanel("notes")} aria-label="Notas y marcadores">
+          <NotesIcon />
+        </button>
         <button type="button" className={btn} onClick={() => setPanel(panel === "toc" ? null : "toc")} aria-label="Índice" disabled={!toc.length}>
           ☰
         </button>
@@ -312,8 +449,36 @@ export function EpubReader({ book }: { book: Book }) {
         </button>
       </footer>
 
+      {hasSelection && !editing && (
+        <SelectionToolbar
+          palette={palette}
+          onHighlight={(c, withNote) => void createHighlight(c, withNote)}
+          onCancel={() => {
+            pendingSelection.current?.contents.window.getSelection()?.removeAllRanges();
+            pendingSelection.current = null;
+            setHasSelection(false);
+          }}
+        />
+      )}
+
+      {panel === "notes" && (
+        <AnnotationsPanel
+          annotations={annotations}
+          palette={palette}
+          locationLabel={(a) => `${Math.round(a.order * 100)} %`}
+          onGo={(a) => goTo(a.location)}
+          onEdit={(a) => {
+            setPanel(null);
+            setEditing(a);
+          }}
+          onClose={() => setPanel(null)}
+        />
+      )}
+
+      {editing && <AnnotationEditor key={editing.id} annotation={editing} palette={palette} onClose={() => setEditing(null)} />}
+
       {/* Fondo para cerrar paneles */}
-      {panel && <button type="button" className="absolute inset-0 z-30 bg-black/30" aria-label="Cerrar" onClick={() => setPanel(null)} />}
+      {panel && panel !== "notes" &&<button type="button" className="absolute inset-0 z-30 bg-black/30" aria-label="Cerrar" onClick={() => setPanel(null)} />}
 
       {/* Índice */}
       {panel === "toc" && (
