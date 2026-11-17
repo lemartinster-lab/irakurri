@@ -42,16 +42,49 @@ export function NotesIcon() {
   );
 }
 
-/** Barra que aparece al seleccionar texto: elegir color o subrayar con nota. */
+export type SelectionAiAction = "explicar" | "traducir" | "resumir";
+
+/** Barra que aparece al seleccionar texto: subrayar, añadir nota o pedir ayuda a la IA. */
 export function SelectionToolbar({
   palette,
   onHighlight,
+  onAi,
   onCancel,
 }: {
   palette: ReaderPalette;
   onHighlight: (color: HighlightColor, withNote: boolean) => void;
+  onAi?: (action: SelectionAiAction) => void;
   onCancel: () => void;
 }) {
+  const [aiMenu, setAiMenu] = useState(false);
+
+  if (aiMenu && onAi) {
+    return (
+      <div
+        role="toolbar"
+        aria-label="Asistente de IA"
+        className="fixed bottom-20 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full border border-black/10 px-2 py-2 shadow-xl"
+        style={{ background: palette.background, color: palette.text }}
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <button type="button" className={iconBtn} onClick={() => setAiMenu(false)} aria-label="Volver">
+          ‹
+        </button>
+        {(
+          [
+            ["explicar", "Explicar"],
+            ["traducir", "Traducir"],
+            ["resumir", "Resumir"],
+          ] as const
+        ).map(([action, label]) => (
+          <button key={action} type="button" className={`${iconBtn} font-medium`} onClick={() => onAi(action)}>
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div
       role="toolbar"
@@ -74,6 +107,11 @@ export function SelectionToolbar({
       <button type="button" className={`${iconBtn} font-medium`} onClick={() => onHighlight("amarillo", true)}>
         + Nota
       </button>
+      {onAi && (
+        <button type="button" className={`${iconBtn} font-medium`} onClick={() => setAiMenu(true)} aria-label="Asistente de IA">
+          ✨ IA
+        </button>
+      )}
       <button type="button" className={iconBtn} onClick={onCancel} aria-label="Cancelar">
         ✕
       </button>

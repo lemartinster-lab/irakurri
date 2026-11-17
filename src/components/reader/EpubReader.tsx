@@ -3,7 +3,8 @@
 import type { Contents, Book as EpubBook, EpubCFI, Location, Rendition } from "epubjs";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addAnnotation, HIGHLIGHT_COLORS, toggleBookmark } from "@/lib/annotations";
+import { MAX_SECTION_CHARS } from "@/lib/ai/prompts";
+import { addAnnotation, HIGHLIGHT_COLORS, toggleBookmark, type NewAnnotation } from "@/lib/annotations";
 import { markOpened, saveEpubLocations, saveProgress } from "@/lib/db";
 import {
   chapterLabel,
@@ -27,7 +28,10 @@ import {
   NotesIcon,
   SelectionToolbar,
   useAnnotations,
+  type SelectionAiAction,
 } from "./annotations";
+import { AiSheet } from "./AiSheet";
+import type { AiState } from "./PdfReader";
 
 const SETTINGS_KEY = "irakurri:epub-settings";
 /** Caracteres por "posición": equilibrio entre precisión del progreso y tiempo de cálculo. */
@@ -91,6 +95,8 @@ export function EpubReader({ book }: { book: Book }) {
   const [visibleRange, setVisibleRange] = useState<{ start: string; end: string } | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const [editing, setEditing] = useState<Annotation | null>(null);
+  const [ai, setAi] = useState<AiState | null>(null);
+  const sectionIndexRef = useRef(0);
 
   const annotations = useAnnotations(book.id);
   const annotationsRef = useRef(annotations);
@@ -130,7 +136,7 @@ export function EpubReader({ book }: { book: Book }) {
     void markOpened(book.id);
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "ArrowRight" || e.key === "PageDown") next();
       else if (e.key === "ArrowLeft" || e.key === "PageUp") prev();
     };
@@ -157,6 +163,7 @@ export function EpubReader({ book }: { book: Book }) {
         lastCfi.current = loc.start.cfi;
         setVisibleRange({ start: loc.start.cfi, end: loc.end.cfi });
         setCurrentHref(loc.start.href);
+        sectionIndexRef.current = loc.start.index;
         setAtStart(loc.atStart);
         setAtEnd(loc.atEnd);
         if (locationsReadyRef.current) {
@@ -312,27 +319,56 @@ export function EpubReader({ book }: { book: Book }) {
     }
   }, [annotations, ready, theme]);
 
-  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+  /** Lee la selección actual (texto y rango CFI) y la borra de la pantalla. */
+  const captureSelection = (): Omit<NewAnnotation, "kind"> | null => {
     const pending = pendingSelection.current;
     const rendition = renditionRef.current;
-    if (!pending || !rendition) return;
+    if (!pending || !rendition) return null;
     const text = rendition.getRange(pending.cfiRange)?.toString().trim() ?? "";
     pending.contents.window.getSelection()?.removeAllRanges();
     pendingSelection.current = null;
     setHasSelection(false);
-    if (!text) return;
+    if (!text) return null;
     const order = locationsReadyRef.current
       ? epubRef.current!.locations.percentageFromCfi(pending.cfiRange)
       : lastProgress.current;
-    const created = await addAnnotation({
+    return {
       bookId: book.id,
-      kind: "highlight",
       location: pending.cfiRange,
       order: Number.isFinite(order) ? order : lastProgress.current,
       text,
-      color,
-    });
+    };
+  };
+
+  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+    const data = captureSelection();
+    if (!data) return;
+    const created = await addAnnotation({ ...data, kind: "highlight", color });
     if (withNote) setEditing(created);
+  };
+
+  const askAboutSelection = (action: SelectionAiAction) => {
+    const data = captureSelection();
+    if (data) setAi({ request: { action, text: data.text, title: book.title, author: book.author }, selection: data });
+  };
+
+  /** Resume el capítulo que se está leyendo (todo el archivo del capítulo, no solo la pantalla). */
+  const summarizeChapter = () => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    setPanel(null);
+    // getContents devuelve en realidad una lista (los tipos de epub.js no lo reflejan)
+    const all = [rendition.getContents()].flat() as unknown as Contents[];
+    const current = all.find((c) => c.sectionIndex === sectionIndexRef.current) ?? all[0];
+    const text = (current?.document.body?.innerText || current?.document.body?.textContent || "").trim();
+    if (!text) {
+      window.alert("Este capítulo no tiene texto que resumir.");
+      return;
+    }
+    setAi({
+      request: { action: "resumir-seccion", text: text.slice(0, MAX_SECTION_CHARS), title: book.title, author: book.author },
+      heading: chapter ? `Resumen: ${chapter}` : "Resumen del capítulo",
+    });
   };
 
   /** ¿La posición `cfi` está en la pantalla que se ve ahora? */
@@ -388,6 +424,9 @@ export function EpubReader({ book }: { book: Book }) {
         </button>
         <button type="button" className={btn} onClick={() => setPanel("notes")} aria-label="Notas y marcadores">
           <NotesIcon />
+        </button>
+        <button type="button" className={btn} onClick={summarizeChapter} disabled={!ready} aria-label="Resumir este capítulo con IA">
+          ✨
         </button>
         <button type="button" className={btn} onClick={() => setPanel(panel === "toc" ? null : "toc")} aria-label="Índice" disabled={!toc.length}>
           ☰
@@ -449,10 +488,27 @@ export function EpubReader({ book }: { book: Book }) {
         </button>
       </footer>
 
-      {hasSelection && !editing && (
+      {ai && (
+        <AiSheet
+          request={ai.request}
+          heading={ai.heading}
+          palette={palette}
+          onClose={() => setAi(null)}
+          onSaveNote={
+            ai.selection
+              ? async (result) => {
+                  await addAnnotation({ ...ai.selection!, kind: "highlight", color: "azul", note: result });
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {hasSelection && !editing && !ai && (
         <SelectionToolbar
           palette={palette}
           onHighlight={(c, withNote) => void createHighlight(c, withNote)}
+          onAi={askAboutSelection}
           onCancel={() => {
             pendingSelection.current?.contents.window.getSelection()?.removeAllRanges();
             pendingSelection.current = null;

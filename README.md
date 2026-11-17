@@ -30,11 +30,25 @@ src/lib/metadata/   extracción de título, autor y portada (PDF/EPUB)
 tests/              tests unitarios
 ```
 
+## Configuración de la IA
+
+La IA funciona a través de la ruta de servidor `/api/ai`, que llama a la API de Claude. La clave **nunca llega al navegador**.
+
+| Variable | | Para qué |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | obligatoria | Clave de la API de Anthropic |
+| `IRAKURRI_ACCESS_CODE` | recomendada | Código que la app pide una vez; protege tu saldo si la URL es pública |
+| `AI_MODEL` | opcional | Modelo de Claude (por defecto `claude-sonnet-5-5`) |
+
+En local: copia `.env.example` a `.env.local`. En Vercel: *Settings → Environment Variables*.
+
+Solo se envía a Claude el texto seleccionado o el de la página/capítulo que pides resumir; los libros siguen sin salir del dispositivo.
+
 ## Hoja de ruta
 
 1. ✅ Base y biblioteca (importar, metadatos, portadas)
 2. ✅ Lector de PDF (zoom, páginas, gestos, modo noche, recordar posición)
 3. ✅ Lector de EPUB (índice, tipografía, temas claro/sepia/oscuro, progreso)
 4. ✅ Marcadores, subrayados en 4 colores y notas (PDF y EPUB)
-5. IA con Claude (resumir, traducir, explicar)
+5. ✅ IA con Claude: explicar, traducir (es/eu/en/fr) y resumir la selección; resumir página o capítulo
 6. PWA instalable y despliegue en Vercel

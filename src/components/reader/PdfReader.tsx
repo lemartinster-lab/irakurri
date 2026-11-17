@@ -3,7 +3,15 @@
 import Link from "next/link";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask, TextLayer } from "pdfjs-dist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addAnnotation, HIGHLIGHT_COLORS, hitTest, normalizeRects, toggleBookmark } from "@/lib/annotations";
+import { MAX_SECTION_CHARS } from "@/lib/ai/prompts";
+import {
+  addAnnotation,
+  HIGHLIGHT_COLORS,
+  hitTest,
+  normalizeRects,
+  toggleBookmark,
+  type NewAnnotation,
+} from "@/lib/annotations";
 import { markOpened, saveProgress } from "@/lib/db";
 import { loadPdfjs } from "@/lib/metadata/pdf";
 import {
@@ -25,7 +33,16 @@ import {
   SelectionToolbar,
   useAnnotations,
   type ReaderPalette,
+  type SelectionAiAction,
 } from "./annotations";
+import { AiSheet, type AiSheetProps } from "./AiSheet";
+
+/** Petición de IA abierta y, si viene de una selección, los datos para guardarla como nota. */
+export interface AiState {
+  request: AiSheetProps["request"];
+  heading?: string;
+  selection?: Omit<NewAnnotation, "kind">;
+}
 
 const NIGHT_KEY = "irakurri:pdf-night";
 const PAGE_PADDING = 16;
@@ -69,6 +86,7 @@ export function PdfReader({ book }: { book: Book }) {
   const [panel, setPanel] = useState<null | "view" | "notes">(null);
   const [hasSelection, setHasSelection] = useState(false);
   const [editing, setEditing] = useState<Annotation | null>(null);
+  const [ai, setAi] = useState<AiState | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -219,7 +237,7 @@ export function PdfReader({ book }: { book: Book }) {
   // Teclado (escritorio)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "ArrowRight" || e.key === "PageDown") go(1);
       else if (e.key === "ArrowLeft" || e.key === "PageUp") go(-1);
       else if (e.key === "+" || e.key === "=") setZoom(zoomIn);
@@ -232,25 +250,47 @@ export function PdfReader({ book }: { book: Book }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [go]);
 
-  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+  /** Lee la selección actual (texto y zonas) y la borra de la pantalla. */
+  const captureSelection = (): Omit<NewAnnotation, "kind"> | null => {
     const sel = pageSelection(pageRef.current);
     const pageEl = pageRef.current;
-    if (!sel || !pageEl || !numPages) return;
+    if (!sel || !pageEl || !numPages) return null;
     const rects = normalizeRects(Array.from(sel.getRangeAt(0).getClientRects()), pageEl.getBoundingClientRect());
     const text = sel.toString().trim();
     sel.removeAllRanges();
     setHasSelection(false);
-    if (!rects.length) return;
-    const created = await addAnnotation({
-      bookId: book.id,
-      kind: "highlight",
-      location: String(page),
-      order: (page - 1 + rects[0].y) / numPages,
-      text,
-      color,
-      rects,
-    });
+    if (!rects.length || !text) return null;
+    return { bookId: book.id, location: String(page), order: (page - 1 + rects[0].y) / numPages, text, rects };
+  };
+
+  const createHighlight = async (color: HighlightColor, withNote: boolean) => {
+    const data = captureSelection();
+    if (!data) return;
+    const created = await addAnnotation({ ...data, kind: "highlight", color });
     if (withNote) setEditing(created);
+  };
+
+  const askAboutSelection = (action: SelectionAiAction) => {
+    const data = captureSelection();
+    if (data) setAi({ request: { action, text: data.text, title: book.title, author: book.author }, selection: data });
+  };
+
+  const summarizePage = async () => {
+    if (!doc) return;
+    setPanel(null);
+    const content = await (await doc.getPage(page)).getTextContent();
+    const text = content.items
+      .map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : " ") : ""))
+      .join("")
+      .trim();
+    if (!text) {
+      window.alert("Esta página no contiene texto (puede ser una imagen escaneada).");
+      return;
+    }
+    setAi({
+      request: { action: "resumir-seccion", text: text.slice(0, MAX_SECTION_CHARS), title: book.title, author: book.author },
+      heading: `Resumen de la página ${page}`,
+    });
   };
 
   const onToggleBookmark = () =>
@@ -312,6 +352,9 @@ export function PdfReader({ book }: { book: Book }) {
         </button>
         <button type="button" className={btn} onClick={() => setPanel("notes")} aria-label="Notas y marcadores">
           <NotesIcon />
+        </button>
+        <button type="button" className={btn} onClick={() => void summarizePage()} disabled={!doc} aria-label="Resumir esta página con IA">
+          ✨
         </button>
         <button
           type="button"
@@ -420,11 +463,28 @@ export function PdfReader({ book }: { book: Book }) {
         </footer>
       )}
 
-      {hasSelection && !editing && (
+      {hasSelection && !editing && !ai && (
         <SelectionToolbar
           palette={PALETTE}
           onHighlight={(c, withNote) => void createHighlight(c, withNote)}
+          onAi={askAboutSelection}
           onCancel={() => window.getSelection()?.removeAllRanges()}
+        />
+      )}
+
+      {ai && (
+        <AiSheet
+          request={ai.request}
+          heading={ai.heading}
+          palette={PALETTE}
+          onClose={() => setAi(null)}
+          onSaveNote={
+            ai.selection
+              ? async (result) => {
+                  await addAnnotation({ ...ai.selection!, kind: "highlight", color: "azul", note: result });
+                }
+              : undefined
+          }
         />
       )}
 
