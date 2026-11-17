@@ -34,8 +34,8 @@ export function ReaderView() {
 
   if (book === undefined) return <p className="mt-24 text-center text-muted">Cargando…</p>;
 
-  if (book?.format === "pdf") return <PdfReader key={book.id} book={book} />;
-  if (book?.format === "epub") return <EpubReader key={book.id} book={book} />;
+  if (book?.format === "pdf") return <PdfReader key={book.id} book={book} onBookChange={setBook} />;
+  if (book?.format === "epub") return <EpubReader key={book.id} book={book} onBookChange={setBook} />;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">

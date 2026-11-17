@@ -11,7 +11,7 @@ import {
   toggleBookmark,
   type NewAnnotation,
 } from "@/lib/annotations";
-import { markOpened, saveProgress } from "@/lib/db";
+import { markOpened, saveProgress, updateBookInfo } from "@/lib/db";
 import { loadPdfjs } from "@/lib/metadata/pdf";
 import {
   clampPage,
@@ -78,7 +78,18 @@ function pageSelection(container: HTMLElement | null): Selection | null {
   return container.contains(sel.anchorNode) ? sel : null;
 }
 
-export function PdfReader({ book }: { book: Book }) {
+export function PdfReader({
+  book,
+  onBookChange,
+}: {
+  book: Book;
+  /** Avisa de cambios en los datos del libro (título/autor) para refrescar la vista */
+  onBookChange?: (book: Book) => void;
+}) {
+  const editInfo = async (info: { title: string; author: string }) => {
+    const saved = await updateBookInfo(book.id, info);
+    onBookChange?.({ ...book, ...saved });
+  };
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -354,6 +365,7 @@ export function PdfReader({ book }: { book: Book }) {
         </a>
         <ReaderTitle
           title={book.title}
+          onEdit={editInfo}
           author={book.author}
           subtitle={numPages ? `Página ${page} de ${numPages}` : undefined}
           palette={palette}

@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import { cleanAuthor } from "./format";
 import type { Annotation, Book } from "./types";
 
 /**
@@ -43,6 +44,24 @@ export async function deleteBook(id: string, database: IrakurriDB = db): Promise
     await database.annotations.where("bookId").equals(id).delete();
     await database.books.delete(id);
   });
+}
+
+/**
+ * Cambia el título y el autor de un libro (p. ej. PDF sin metadatos que muestran
+ * el nombre del archivo). El título no puede quedar vacío; el autor vacío pasa a
+ * "Autor desconocido". Devuelve los valores guardados.
+ */
+export async function updateBookInfo(
+  id: string,
+  info: { title: string; author: string },
+  database: IrakurriDB = db,
+): Promise<{ title: string; author: string }> {
+  const title = info.title.replace(/\s+/g, " ").trim().slice(0, 300);
+  if (!title) throw new Error("El título no puede quedar vacío.");
+  const author = cleanAuthor(info.author.replace(/\s+/g, " ").slice(0, 200));
+  const updated = await database.books.update(id, { title, author });
+  if (!updated) throw new Error("El libro ya no está en la biblioteca.");
+  return { title, author };
 }
 
 /** Registra la apertura para que el libro suba al principio de la biblioteca. */

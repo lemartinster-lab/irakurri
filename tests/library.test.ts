@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteBook, IrakurriDB, listBooks, saveProgress } from "@/lib/db";
+import { deleteBook, IrakurriDB, listBooks, saveProgress, updateBookInfo } from "@/lib/db";
 import { importFiles, type Extractors } from "@/lib/import";
 
 let database: IrakurriDB;
@@ -88,5 +88,32 @@ describe("biblioteca", () => {
     const [first] = await seed();
     await deleteBook(first.id, database);
     expect((await listBooks(database)).map((b) => b.id)).not.toContain(first.id);
+  });
+});
+
+describe("updateBookInfo", () => {
+  async function oneBook() {
+    const extractors: Extractors = { pdf: vi.fn().mockResolvedValue({}), epub: vi.fn() };
+    const { imported } = await importFiles([fakeFile("AGUIMES021_261113.pdf")], { database, extractors });
+    return imported[0];
+  }
+
+  it("cambia título y autor limpiando espacios", async () => {
+    const book = await oneBook();
+    const saved = await updateBookInfo(book.id, { title: "  Ordenanza   de costas ", author: " Ayto. de Agüimes " }, database);
+    expect(saved).toEqual({ title: "Ordenanza de costas", author: "Ayto. de Agüimes" });
+    const [stored] = await listBooks(database);
+    expect(stored.title).toBe("Ordenanza de costas");
+    expect(stored.author).toBe("Ayto. de Agüimes");
+  });
+
+  it("no permite un título vacío y deja el autor vacío como desconocido", async () => {
+    const book = await oneBook();
+    await expect(updateBookInfo(book.id, { title: "   ", author: "x" }, database)).rejects.toThrow("vacío");
+    expect((await updateBookInfo(book.id, { title: "T", author: "  " }, database)).author).toBe("Autor desconocido");
+  });
+
+  it("avisa si el libro ya no existe", async () => {
+    await expect(updateBookInfo("no-existe", { title: "T", author: "A" }, database)).rejects.toThrow("ya no está");
   });
 });

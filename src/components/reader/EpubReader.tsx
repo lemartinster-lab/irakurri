@@ -4,7 +4,7 @@ import type { Contents, Book as EpubBook, EpubCFI, Location, Rendition } from "e
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_SECTION_CHARS } from "@/lib/ai/prompts";
 import { addAnnotation, HIGHLIGHT_COLORS, toggleBookmark, type NewAnnotation } from "@/lib/annotations";
-import { markOpened, saveEpubLocations, saveProgress } from "@/lib/db";
+import { markOpened, saveEpubLocations, saveProgress, updateBookInfo } from "@/lib/db";
 import {
   chapterLabel,
   clampFontSize,
@@ -60,7 +60,18 @@ function applySettings(rendition: Rendition, s: EpubSettings) {
   rendition.themes.fontSize(`${s.fontSize}%`);
 }
 
-export function EpubReader({ book }: { book: Book }) {
+export function EpubReader({
+  book,
+  onBookChange,
+}: {
+  book: Book;
+  /** Avisa de cambios en los datos del libro (título/autor) para refrescar la vista */
+  onBookChange?: (book: Book) => void;
+}) {
+  const editInfo = async (info: { title: string; author: string }) => {
+    const saved = await updateBookInfo(book.id, info);
+    onBookChange?.({ ...book, ...saved });
+  };
   const hostRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const epubRef = useRef<EpubBook | null>(null);
@@ -400,7 +411,7 @@ export function EpubReader({ book }: { book: Book }) {
         <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
         </a>
-        <ReaderTitle title={book.title} author={book.author} subtitle={chapter} palette={palette} />
+        <ReaderTitle title={book.title} author={book.author} subtitle={chapter} palette={palette} onEdit={editInfo} />
         <button
           type="button"
           className={btn}
