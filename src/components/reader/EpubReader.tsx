@@ -548,6 +548,7 @@ export function EpubReader({ book }: { book: Book }) {
               annotations={annotations}
               palette={palette}
               locationLabel={(a) => `${Math.round(a.order * 100)} %`}
+              book={book}
               onGo={(a) => goTo(a.location)}
               onEdit={(a) => {
                 setPanel(null);

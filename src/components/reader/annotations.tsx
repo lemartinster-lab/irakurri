@@ -9,6 +9,7 @@ import {
   listAnnotations,
   updateAnnotation,
 } from "@/lib/annotations";
+import { annotationsToMarkdown, shareOrDownload } from "@/lib/exportNotes";
 import type { Annotation, HighlightColor } from "@/lib/types";
 
 /** Colores del lector en curso (cada lector tiene su propio tema). */
@@ -271,14 +272,27 @@ export function AnnotationsList({
   locationLabel,
   onGo,
   onEdit,
+  book,
 }: {
   annotations: Annotation[];
   palette: ReaderPalette;
   locationLabel: (a: Annotation) => string;
   onGo: (a: Annotation) => void;
   onEdit: (a: Annotation) => void;
+  /** Si se indica, aparece el botón "Exportar" */
+  book?: { title: string; author: string };
 }) {
   const [filter, setFilter] = useState<"todo" | "bookmark" | "highlight">("todo");
+  const [exported, setExported] = useState<string | null>(null);
+
+  const exportAll = async () => {
+    if (!book) return;
+    const markdown = annotationsToMarkdown(book, annotations, locationLabel);
+    const result = await shareOrDownload(book.title, markdown);
+    if (result === "cancelled") return;
+    setExported(result === "shared" ? "Compartido ✓" : "Descargado ✓");
+    setTimeout(() => setExported(null), 2500);
+  };
   const shown = filter === "todo" ? annotations : annotations.filter((a) => a.kind === filter);
   const filters = [
     ["todo", "Todo"],
@@ -288,7 +302,7 @@ export function AnnotationsList({
 
   return (
     <>
-      <div className="flex flex-wrap gap-1 px-4 pb-2">
+      <div className="flex flex-wrap items-center gap-1 px-4 pb-2">
         {filters.map(([key, label]) => (
           <button
             key={key}
@@ -300,6 +314,18 @@ export function AnnotationsList({
             {label}
           </button>
         ))}
+        {book && (
+          <button
+            type="button"
+            onClick={() => void exportAll()}
+            disabled={annotations.length === 0}
+            className="ml-auto rounded-full px-3 py-1 text-xs font-medium underline-offset-2 hover:underline disabled:opacity-35"
+            style={{ color: palette.accent }}
+            title="Exportar subrayados y notas"
+          >
+            {exported ?? "Exportar ↗"}
+          </button>
+        )}
       </div>
 
       <ul className="flex-1 overflow-y-auto px-2 pb-6">

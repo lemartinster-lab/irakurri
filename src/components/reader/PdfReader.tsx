@@ -498,6 +498,7 @@ export function PdfReader({ book }: { book: Book }) {
           annotations={annotations}
           palette={PALETTE}
           locationLabel={(a) => `Pág. ${a.location}`}
+          book={book}
           onGo={(a) => {
             setPanel(null);
             setPage(clampPage(Number(a.location), numPages));
