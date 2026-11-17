@@ -36,6 +36,8 @@ import {
 } from "./annotations";
 import { AiSheet, type AiSheetProps } from "./AiSheet";
 import { ReaderTitle } from "./ReaderTitle";
+import { THEME_COLORS } from "@/lib/reader/epubSettings";
+import { PDF_THEME_KEY, pdfPageStyle, readPdfTheme, type PdfTheme } from "@/lib/reader/pdfTheme";
 
 /** Petición de IA abierta y, si viene de una selección, los datos para guardarla como nota. */
 export interface AiState {
@@ -44,16 +46,21 @@ export interface AiState {
   selection?: Omit<NewAnnotation, "kind">;
 }
 
-const NIGHT_KEY = "irakurri:pdf-night";
 const PAGE_PADDING = 16;
-const NIGHT_FILTER = "invert(0.9) hue-rotate(180deg)";
-const PALETTE: ReaderPalette = { background: "var(--surface)", text: "var(--foreground)", accent: "var(--accent)" };
+/** Tema claro: sigue los colores de la app (y su modo claro/oscuro del sistema). */
+const APP_PALETTE: ReaderPalette = { background: "var(--surface)", text: "var(--foreground)", accent: "var(--accent)" };
 
-function readNightPref(): boolean {
+function paletteFor(theme: PdfTheme): ReaderPalette {
+  if (theme === "claro") return APP_PALETTE;
+  const c = THEME_COLORS[theme];
+  return { background: c.background, text: c.text, accent: c.link };
+}
+
+function readStorage(): Storage | undefined {
   try {
-    return localStorage.getItem(NIGHT_KEY) === "1";
+    return localStorage;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -82,7 +89,7 @@ export function PdfReader({ book }: { book: Book }) {
   const [rendering, setRendering] = useState(false);
   const [barsVisible, setBarsVisible] = useState(true);
   // El lector se carga solo en el navegador (ssr: false), así que localStorage existe
-  const [night, setNight] = useState(readNightPref);
+  const [theme, setTheme] = useState<PdfTheme>(() => readPdfTheme(readStorage()));
   const [panel, setPanel] = useState<null | "view" | "notes">(null);
   const [hasSelection, setHasSelection] = useState(false);
   const [editing, setEditing] = useState<Annotation | null>(null);
@@ -100,15 +107,16 @@ export function PdfReader({ book }: { book: Book }) {
   );
   const bookmarked = annotations.some((a) => a.kind === "bookmark" && a.location === String(page));
 
-  const toggleNight = () =>
-    setNight((n) => {
-      try {
-        localStorage.setItem(NIGHT_KEY, n ? "0" : "1");
-      } catch {
-        /* almacenamiento no disponible: se mantiene solo en esta sesión */
-      }
-      return !n;
-    });
+  const changeTheme = (t: PdfTheme) => {
+    setTheme(t);
+    try {
+      localStorage.setItem(PDF_THEME_KEY, t);
+    } catch {
+      /* almacenamiento no disponible: se mantiene solo en esta sesión */
+    }
+  };
+  const palette = paletteFor(theme);
+  const pageStyle = pdfPageStyle(theme);
 
   // 1. Cargar el documento una sola vez por libro
   useEffect(() => {
@@ -328,13 +336,19 @@ export function PdfReader({ book }: { book: Book }) {
     if (swipe) go(swipe === "next" ? 1 : -1);
   };
 
+  // Barras y menús con el color del tema (en "claro" siguen los colores de la app)
+  const chromeStyle =
+    theme === "claro" ? undefined : { background: palette.background, color: palette.text, borderColor: "rgba(128,128,128,.25)" };
   const barClass = `fixed inset-x-0 z-20 flex items-center gap-1 border-border bg-surface/95 px-2 backdrop-blur transition-transform duration-200`;
-  const btn = "shrink-0 rounded-md px-2 py-1.5 text-sm hover:bg-border disabled:opacity-40";
+  const btn = "shrink-0 rounded-md px-2 py-1.5 text-sm hover:bg-black/10 disabled:opacity-40";
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-background">
+    <div
+      className="h-[100dvh] overflow-hidden bg-background"
+      style={theme === "claro" ? undefined : { background: THEME_COLORS[theme].background, color: THEME_COLORS[theme].text }}
+    >
       {/* Barra superior */}
-      <header className={`${barClass} top-0 h-14 border-b ${barsVisible || panel ? "" : "-translate-y-full"}`}>
+      <header style={chromeStyle} className={`${barClass} top-0 h-14 border-b ${barsVisible || panel ? "" : "-translate-y-full"}`}>
         <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
         </a>
@@ -342,7 +356,7 @@ export function PdfReader({ book }: { book: Book }) {
           title={book.title}
           author={book.author}
           subtitle={numPages ? `Página ${page} de ${numPages}` : undefined}
-          palette={PALETTE}
+          palette={palette}
         />
         <button
           type="button"
@@ -374,7 +388,7 @@ export function PdfReader({ book }: { book: Book }) {
 
       {/* Menú de vista: zoom y modo noche */}
       {panel === "view" && (
-        <div className="fixed right-2 top-16 z-30 flex items-center gap-1 rounded-xl border border-border bg-surface p-2 shadow-lg">
+        <div style={chromeStyle} className="fixed right-2 top-16 z-30 flex items-center gap-1 rounded-xl border border-border bg-surface p-2 shadow-lg">
           <button type="button" className={btn} onClick={() => setZoom(zoomOut)} aria-label="Reducir">
             −
           </button>
@@ -385,9 +399,18 @@ export function PdfReader({ book }: { book: Book }) {
             +
           </button>
           <span className="mx-1 h-6 w-px bg-border" />
-          <button type="button" className={btn} onClick={toggleNight} aria-pressed={night} title={night ? "Modo día" : "Modo noche"}>
-            {night ? "☀" : "☾"}
-          </button>
+          {(Object.keys(THEME_COLORS) as PdfTheme[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => changeTheme(t)}
+              className="h-8 w-8 shrink-0 rounded-full border-2"
+              style={{ background: THEME_COLORS[t].background, borderColor: theme === t ? "var(--accent)" : "rgba(128,128,128,.4)" }}
+              aria-label={`Tema ${t}`}
+              aria-pressed={theme === t}
+              title={t[0].toUpperCase() + t.slice(1)}
+            />
+          ))}
         </div>
       )}
 
@@ -415,7 +438,9 @@ export function PdfReader({ book }: { book: Book }) {
               style={pageSize ? { width: pageSize.w, height: pageSize.h } : undefined}
             >
               {/* Lienzo + capa de texto (los inserta pdf.js) */}
-              <div ref={hostRef} className="absolute inset-0" style={night ? { filter: NIGHT_FILTER } : undefined} />
+              <div ref={hostRef} className="absolute inset-0" style={pageStyle.filter ? { filter: pageStyle.filter } : undefined} />
+              {/* Tema sepia: el papel toma color sin aclarar el texto */}
+              {pageStyle.overlay && <div className="pointer-events-none absolute inset-0 z-[1]" style={pageStyle.overlay} aria-hidden />}
               {/* Subrayados: entre el dibujo y la capa de texto, para no impedir la selección */}
               <div className="pointer-events-none absolute inset-0 z-[1]" aria-hidden>
                 {pageHighlights.flatMap((a) =>
@@ -429,8 +454,8 @@ export function PdfReader({ book }: { book: Book }) {
                         width: `${r.w * 100}%`,
                         height: `${r.h * 100}%`,
                         background: HIGHLIGHT_COLORS[a.color ?? "amarillo"].fill,
-                        opacity: night ? 0.35 : 0.4,
-                        mixBlendMode: night ? "normal" : "multiply",
+                        opacity: pageStyle.highlightOpacity,
+                        mixBlendMode: pageStyle.highlightBlend,
                       }}
                     />
                   )),
@@ -445,6 +470,7 @@ export function PdfReader({ book }: { book: Book }) {
       {/* Barra inferior */}
       {numPages > 0 && (
         <footer
+          style={chromeStyle}
           className={`${barClass} bottom-0 h-16 border-t pb-[env(safe-area-inset-bottom)] ${barsVisible || panel ? "" : "translate-y-full"}`}
         >
           <button type="button" className={btn} onClick={() => go(-1)} disabled={page <= 1} aria-label="Página anterior">
@@ -470,7 +496,7 @@ export function PdfReader({ book }: { book: Book }) {
 
       {hasSelection && !editing && !ai && (
         <SelectionToolbar
-          palette={PALETTE}
+          palette={palette}
           onHighlight={(c, withNote) => void createHighlight(c, withNote)}
           onAi={askAboutSelection}
           onCancel={() => window.getSelection()?.removeAllRanges()}
@@ -481,7 +507,7 @@ export function PdfReader({ book }: { book: Book }) {
         <AiSheet
           request={ai.request}
           heading={ai.heading}
-          palette={PALETTE}
+          palette={palette}
           onClose={() => setAi(null)}
           onSaveNote={
             ai.selection
@@ -496,7 +522,7 @@ export function PdfReader({ book }: { book: Book }) {
       {panel === "notes" && (
         <AnnotationsPanel
           annotations={annotations}
-          palette={PALETTE}
+          palette={palette}
           locationLabel={(a) => `Pág. ${a.location}`}
           book={book}
           onGo={(a) => {
@@ -511,7 +537,7 @@ export function PdfReader({ book }: { book: Book }) {
         />
       )}
 
-      {editing && <AnnotationEditor key={editing.id} annotation={editing} palette={PALETTE} onClose={() => setEditing(null)} />}
+      {editing && <AnnotationEditor key={editing.id} annotation={editing} palette={palette} onClose={() => setEditing(null)} />}
     </div>
   );
 }

@@ -60,8 +60,8 @@ Solo se envía a Claude el texto seleccionado o el de la página/capítulo que p
 ## Hoja de ruta
 
 1. ✅ Base y biblioteca (importar, metadatos, portadas)
-2. ✅ Lector de PDF (zoom, páginas, gestos, modo noche, recordar posición)
+2. ✅ Lector de PDF (zoom, páginas, gestos, temas claro/sepia/oscuro, recordar posición)
 3. ✅ Lector de EPUB (índice, tipografía, temas claro/sepia/oscuro, progreso)
-4. ✅ Marcadores, subrayados en 4 colores y notas (PDF y EPUB)
+4. ✅ Marcadores, subrayados en 4 colores y notas (PDF y EPUB), exportables a Markdown
 5. ✅ IA con Claude: explicar, traducir (es/eu/en/fr) y resumir la selección; resumir página o capítulo
 6. ✅ App instalable (PWA) que funciona sin conexión; lista para Vercel
