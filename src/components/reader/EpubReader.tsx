@@ -23,6 +23,7 @@ import {
 } from "@/lib/reader/epubSettings";
 import { detectSwipe } from "@/lib/reader/pdfNav";
 import type { Annotation, Book, HighlightColor } from "@/lib/types";
+import { APP_VERSION } from "@/lib/version";
 import {
   AnnotationEditor,
   AnnotationsList,
@@ -655,6 +656,7 @@ export function EpubReader({
               ))}
             </div>
           </div>
+          <p className="text-center text-xs opacity-45">Irakurri · versión {APP_VERSION}</p>
         </section>
       )}
     </div>

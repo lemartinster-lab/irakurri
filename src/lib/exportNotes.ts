@@ -71,33 +71,88 @@ export function exportFileName(title: string, ext = "md"): string {
   return `${base}-notas.${ext}`;
 }
 
+export type ExportMethod = "share-file" | "share-text" | "clipboard" | "download";
+export type ExportResult = "shared" | "copied" | "downloaded" | "cancelled";
+
 /**
- * En el móvil abre el menú de compartir del sistema (WhatsApp, correo, Drive…);
- * si no está disponible, descarga el archivo. Devuelve qué se hizo.
+ * Orden en que se intenta exportar según lo que permite el navegador.
+ * - Móvil: menú de compartir con archivo; si el navegador no comparte archivos
+ *   (p. ej. DuckDuckGo), compartir como texto; si tampoco, copiar al portapapeles.
+ *   En móvil no se descarga: varios navegadores ignoran el nombre del archivo.
+ * - Ordenador: descargar el archivo (ahí sí se respeta el nombre).
  */
-export async function shareOrDownload(title: string, markdown: string): Promise<"shared" | "downloaded" | "cancelled"> {
+export function exportPlan(caps: {
+  mobile: boolean;
+  canShareFiles: boolean;
+  canShareText: boolean;
+  hasClipboard: boolean;
+}): ExportMethod[] {
+  if (!caps.mobile) return ["download"];
+  const plan: ExportMethod[] = [];
+  if (caps.canShareFiles) plan.push("share-file");
+  if (caps.canShareText) plan.push("share-text");
+  if (caps.hasClipboard) plan.push("clipboard");
+  plan.push("download"); // último recurso
+  return plan;
+}
+
+function download(file: File) {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Exporta las notas por el mejor medio disponible. Devuelve qué se hizo. */
+export async function shareOrDownload(title: string, markdown: string): Promise<ExportResult> {
   // Android no siempre acepta .md para compartir: se prueba también como .txt
   const candidates = [
     new File([markdown], exportFileName(title, "md"), { type: "text/markdown" }),
     new File([markdown], exportFileName(title, "txt"), { type: "text/plain" }),
   ];
-  const shareable = candidates.find((file) => navigator.canShare?.({ files: [file] }));
-  if (shareable && navigator.share) {
+  const shareableFile = candidates.find((file) => {
     try {
-      await navigator.share({ files: [shareable], title: `Notas: ${title}` });
-      return "shared";
+      return navigator.canShare?.({ files: [file] }) ?? false;
+    } catch {
+      return false;
+    }
+  });
+  const textData = { title: `Notas: ${title}`, text: markdown };
+  const canShareText =
+    typeof navigator.share === "function" && (navigator.canShare ? navigator.canShare(textData) : true);
+
+  const plan = exportPlan({
+    mobile: window.matchMedia?.("(pointer: coarse)").matches ?? false,
+    canShareFiles: Boolean(shareableFile && navigator.share),
+    canShareText,
+    hasClipboard: Boolean(navigator.clipboard?.writeText),
+  });
+
+  for (const method of plan) {
+    try {
+      if (method === "share-file") {
+        await navigator.share({ files: [shareableFile!], title: textData.title });
+        return "shared";
+      }
+      if (method === "share-text") {
+        await navigator.share(textData);
+        return "shared";
+      }
+      if (method === "clipboard") {
+        await navigator.clipboard.writeText(markdown);
+        return "copied";
+      }
+      download(candidates[0]);
+      return "downloaded";
     } catch (err) {
+      // El usuario cerró el menú de compartir: no se intenta otra cosa
       if (err instanceof Error && err.name === "AbortError") return "cancelled";
-      // Si compartir falla por otro motivo, se descarga
+      // Cualquier otro fallo: se prueba el siguiente método
     }
   }
-  const url = URL.createObjectURL(candidates[0]);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = candidates[0].name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return "downloaded";
+  return "cancelled";
 }

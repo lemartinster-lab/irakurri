@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { db, deleteBook, sortBooks } from "@/lib/db";
 import { formatSize } from "@/lib/format";
 import { importFiles } from "@/lib/import";
+import { APP_VERSION } from "@/lib/version";
 import { isStandalone, onLaunchFiles, requestPersistentStorage, type BeforeInstallPromptEvent } from "@/lib/pwa";
 import type { Book } from "@/lib/types";
 import { BookCard } from "./BookCard";
@@ -140,6 +141,8 @@ export function Library() {
           ))}
         </section>
       )}
+
+      <footer className="mt-16 text-center text-xs text-muted">Irakurri · versión {APP_VERSION}</footer>
 
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-accent/15 backdrop-blur-sm">

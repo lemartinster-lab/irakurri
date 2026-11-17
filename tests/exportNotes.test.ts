@@ -45,3 +45,27 @@ describe("exportFileName", () => {
     expect(exportFileName("¿?", "txt")).toBe("libro-notas.txt");
   });
 });
+
+describe("exportPlan", () => {
+  it("en el ordenador descarga el archivo", async () => {
+    const { exportPlan } = await import("@/lib/exportNotes");
+    expect(exportPlan({ mobile: false, canShareFiles: true, canShareText: true, hasClipboard: true })).toEqual(["download"]);
+  });
+
+  it("en el móvil prefiere compartir el archivo y luego el texto", async () => {
+    const { exportPlan } = await import("@/lib/exportNotes");
+    expect(exportPlan({ mobile: true, canShareFiles: true, canShareText: true, hasClipboard: true })).toEqual([
+      "share-file", "share-text", "clipboard", "download",
+    ]);
+  });
+
+  it("si el navegador no comparte archivos (DuckDuckGo) comparte como texto", async () => {
+    const { exportPlan } = await import("@/lib/exportNotes");
+    expect(exportPlan({ mobile: true, canShareFiles: false, canShareText: true, hasClipboard: true })[0]).toBe("share-text");
+  });
+
+  it("sin compartir, copia al portapapeles antes de descargar", async () => {
+    const { exportPlan } = await import("@/lib/exportNotes");
+    expect(exportPlan({ mobile: true, canShareFiles: false, canShareText: false, hasClipboard: true })).toEqual(["clipboard", "download"]);
+  });
+});

@@ -29,7 +29,11 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 
+// Versión visible en la app: commit de Vercel (7 caracteres) y fecha del build
+const appVersion = `${(process.env.VERCEL_GIT_COMMIT_SHA ?? "local").slice(0, 7)} · ${new Date().toISOString().slice(0, 10)}`;
+
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_APP_VERSION: appVersion },
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },

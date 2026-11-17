@@ -245,7 +245,7 @@ export function SidePanel<T extends string>({
                   role="tab"
                   aria-selected={activeTab === key}
                   onClick={() => onTab?.(key)}
-                  className="flex-1 rounded-lg px-3 py-2 font-serif text-base font-bold"
+                  className="min-w-0 flex-1 whitespace-nowrap rounded-lg px-2 py-2 font-serif text-sm font-bold sm:text-base"
                   style={activeTab === key ? { background: palette.accent, color: "white" } : { opacity: 0.7 }}
                 >
                   {label}
@@ -290,7 +290,7 @@ export function AnnotationsList({
     const markdown = annotationsToMarkdown(book, annotations, locationLabel);
     const result = await shareOrDownload(book.title, markdown);
     if (result === "cancelled") return;
-    setExported(result === "shared" ? "Compartido ✓" : "Descargado ✓");
+    setExported(result === "shared" ? "Compartido ✓" : result === "copied" ? "Notas copiadas ✓" : "Descargado ✓");
     setTimeout(() => setExported(null), 2500);
   };
   const shown = filter === "todo" ? annotations : annotations.filter((a) => a.kind === filter);
