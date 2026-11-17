@@ -35,6 +35,7 @@ import {
   type SelectionAiAction,
 } from "./annotations";
 import { AiSheet, type AiSheetProps } from "./AiSheet";
+import { ReaderTitle } from "./ReaderTitle";
 
 /** Petición de IA abierta y, si viene de una selección, los datos para guardarla como nota. */
 export interface AiState {
@@ -337,7 +338,12 @@ export function PdfReader({ book }: { book: Book }) {
         <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
         </a>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{book.title}</h1>
+        <ReaderTitle
+          title={book.title}
+          author={book.author}
+          subtitle={numPages ? `Página ${page} de ${numPages}` : undefined}
+          palette={PALETTE}
+        />
         <button
           type="button"
           className={btn}

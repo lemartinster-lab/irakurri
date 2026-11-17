@@ -33,6 +33,7 @@ import {
   type SelectionAiAction,
 } from "./annotations";
 import { AiSheet } from "./AiSheet";
+import { ReaderTitle } from "./ReaderTitle";
 import type { AiState } from "./PdfReader";
 
 const SETTINGS_KEY = "irakurri:epub-settings";
@@ -399,10 +400,7 @@ export function EpubReader({ book }: { book: Book }) {
         <a href="/" className={btn} aria-label="Volver a la biblioteca">
           ←
         </a>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-medium">{book.title}</h1>
-          {chapter && <p className="truncate text-xs opacity-60">{chapter}</p>}
-        </div>
+        <ReaderTitle title={book.title} author={book.author} subtitle={chapter} palette={palette} />
         <button
           type="button"
           className={btn}
