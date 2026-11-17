@@ -36,6 +36,11 @@ export async function deleteBook(id: string, database: IrakurriDB = db): Promise
   await database.books.delete(id);
 }
 
+/** Registra la apertura para que el libro suba al principio de la biblioteca. */
+export async function markOpened(id: string, database: IrakurriDB = db): Promise<void> {
+  await database.books.update(id, { lastOpenedAt: Date.now() });
+}
+
 export async function saveProgress(
   id: string,
   progress: number,

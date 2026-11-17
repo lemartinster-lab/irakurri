@@ -24,6 +24,15 @@ export function titleFromFilename(name: string): string {
   return cleaned || "Sin título";
 }
 
+/** Valores de relleno que algunos programas escriben como autor y no aportan nada. */
+const PLACEHOLDER_AUTHORS = new Set(["anonymous", "unknown", "author", "user", "admin", "desconocido"]);
+
+export function cleanAuthor(author: string | undefined): string {
+  const trimmed = author?.trim() ?? "";
+  if (!trimmed || PLACEHOLDER_AUTHORS.has(trimmed.toLowerCase())) return "Autor desconocido";
+  return trimmed;
+}
+
 export function formatProgress(progress: number): string {
   const clamped = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
   return `${Math.round(clamped * 100)} %`;

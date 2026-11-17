@@ -1,5 +1,5 @@
 import { db as defaultDb, type IrakurriDB } from "./db";
-import { detectFormat, titleFromFilename } from "./format";
+import { cleanAuthor, detectFormat, titleFromFilename } from "./format";
 import type { Book, BookFormat, ExtractedMetadata } from "./types";
 
 export type Extractor = (file: Blob) => Promise<ExtractedMetadata>;
@@ -57,7 +57,7 @@ export async function importFiles(
     const book: Book = {
       id: newId(),
       title: meta.title?.trim() || titleFromFilename(file.name),
-      author: meta.author?.trim() || "Autor desconocido",
+      author: cleanAuthor(meta.author),
       format,
       file,
       cover: meta.cover,

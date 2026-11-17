@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectFormat, formatProgress, formatSize, titleFromFilename } from "@/lib/format";
+import { cleanAuthor, detectFormat, formatProgress, formatSize, titleFromFilename } from "@/lib/format";
 
 describe("detectFormat", () => {
   it("usa el tipo MIME cuando existe", () => {
@@ -24,6 +24,15 @@ describe("titleFromFilename", () => {
   });
   it("devuelve un título de reserva si queda vacío", () => {
     expect(titleFromFilename("___.epub")).toBe("Sin título");
+  });
+});
+
+describe("cleanAuthor", () => {
+  it("descarta autores de relleno y conserva los reales", () => {
+    expect(cleanAuthor("anonymous")).toBe("Autor desconocido");
+    expect(cleanAuthor("  ")).toBe("Autor desconocido");
+    expect(cleanAuthor(undefined)).toBe("Autor desconocido");
+    expect(cleanAuthor(" Bernardo Atxaga ")).toBe("Bernardo Atxaga");
   });
 });
 

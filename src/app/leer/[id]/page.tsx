@@ -1,27 +1,45 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useEffect, useState } from "react";
 import { db } from "@/lib/db";
+import type { Book } from "@/lib/types";
 
-/** Marcador de posición: los visores de PDF y EPUB llegan en las fases 2 y 3. */
+// pdf.js solo funciona en el navegador
+const PdfReader = dynamic(() => import("@/components/reader/PdfReader").then((m) => m.PdfReader), {
+  ssr: false,
+  loading: () => <p className="mt-24 text-center text-muted">Abriendo…</p>,
+});
+
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>();
-  // null = no existe; undefined = aún cargando
-  const book = useLiveQuery(async () => (await db.books.get(id)) ?? null, [id]);
+  // Se lee una sola vez: el lector guarda el progreso y no debe recargarse por ello.
+  // undefined = cargando; null = no existe
+  const [book, setBook] = useState<Book | null | undefined>(undefined);
+
+  useEffect(() => {
+    let active = true;
+    db.books.get(id).then((b) => active && setBook(b ?? null));
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  if (book === undefined) return <p className="mt-24 text-center text-muted">Cargando…</p>;
+
+  if (book?.format === "pdf") return <PdfReader key={book.id} book={book} />;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
-      {book === undefined ? (
-        <p className="text-muted">Cargando…</p>
-      ) : book === null ? (
+      {book === null ? (
         <p className="text-muted">Este libro ya no está en la biblioteca.</p>
       ) : (
         <>
           <h1 className="font-serif text-2xl font-bold">{book.title}</h1>
           <p className="text-muted">{book.author}</p>
-          <p className="text-sm text-muted">El lector de {book.format.toUpperCase()} estará disponible en la próxima fase.</p>
+          <p className="text-sm text-muted">El lector de EPUB estará disponible en la fase 3.</p>
         </>
       )}
       <Link href="/" className="text-accent underline">
