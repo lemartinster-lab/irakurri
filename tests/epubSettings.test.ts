@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildThemeRules,
   chapterLabel,
   clampFontSize,
   DEFAULT_EPUB_SETTINGS,
@@ -55,5 +56,30 @@ describe("índice", () => {
     expect(chapterLabel(toc, "Text/cap1.xhtml")).toBe("Capítulo 1");
     expect(chapterLabel(toc, "otro.xhtml")).toBeUndefined();
     expect(chapterLabel(toc, undefined)).toBeUndefined();
+  });
+});
+
+describe("buildThemeRules", () => {
+  const rules = buildThemeRules(DEFAULT_EPUB_SETTINGS);
+  const ruleFor = (tag: string) =>
+    Object.entries(rules).find(([selector]) => selector.split(",").map((x) => x.trim()).includes(tag))?.[1];
+
+  it("hace que el texto corriente herede el tamaño del lector aunque el libro lo fije en pt", () => {
+    for (const tag of ["p", "span", "li", "div", "td"]) {
+      expect(ruleFor(tag)?.["font-size"]).toBe("inherit !important");
+    }
+  });
+
+  it("mantiene la jerarquía de los títulos en proporción al texto", () => {
+    expect(rules.h1["font-size"]).toBe("1.6em !important");
+    expect(rules.h2["font-size"]).toBe("1.4em !important");
+    expect(rules["h1 *"]["font-size"]).toBe("inherit !important");
+  });
+
+  it("aplica colores y tipo de letra del tema elegido", () => {
+    const sepia = buildThemeRules({ ...DEFAULT_EPUB_SETTINGS, theme: "sepia", font: "sans" });
+    expect(sepia.body.background).toContain("#f4ecd8");
+    expect(sepia.body["font-family"]).toContain("system-ui");
+    expect(sepia.html["font-size"]).toBe("100% !important");
   });
 });

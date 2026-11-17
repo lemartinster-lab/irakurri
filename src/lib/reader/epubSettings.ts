@@ -44,6 +44,52 @@ export const FONT_STACKS: Record<EpubFont, string> = {
   sans: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
 };
 
+/** Tamaño de los títulos respecto al texto normal (se mantiene la jerarquía al escalar). */
+export const HEADING_SCALE = { h1: 1.6, h2: 1.4, h3: 1.2, h4: 1.1, h5: 1, h6: 1 } as const;
+
+/** Elementos de texto corriente: siempre heredan el tamaño elegido por el lector. */
+const TEXT_ELEMENTS = "p, li, span, div, blockquote, td, th, dd, dt, a, em, strong, b, i, u, font, section, article";
+
+/**
+ * Reglas CSS que se inyectan en el libro según los ajustes.
+ * Muchos EPUB (sobre todo los exportados de Google Docs o Word) fijan el tamaño de
+ * cada párrafo en pt o px; un tamaño fijo no hereda el del cuerpo y el ajuste de
+ * tamaño no tendría efecto. Por eso, como hacen los lectores tipo Kindle, el texto
+ * corriente hereda siempre el tamaño del lector y los títulos usan proporciones
+ * fijas sobre él. El tamaño en sí (%) se aplica aparte con themes.fontSize().
+ */
+export function buildThemeRules(s: EpubSettings): Record<string, Record<string, string>> {
+  const c = THEME_COLORS[s.theme];
+  const rules: Record<string, Record<string, string>> = {
+    // Base conocida para el porcentaje (algunos libros cambian el tamaño de <html>)
+    html: { "font-size": "100% !important" },
+    body: {
+      background: `${c.background} !important`,
+      color: `${c.text} !important`,
+      "font-family": `${FONT_STACKS[s.font]} !important`,
+      "line-height": `${s.lineHeight} !important`,
+    },
+    [TEXT_ELEMENTS]: {
+      color: "inherit !important",
+      "font-family": "inherit !important",
+      "line-height": "inherit !important",
+      "font-size": "inherit !important",
+    },
+    a: { color: `${c.link} !important` },
+  };
+  for (const [tag, scale] of Object.entries(HEADING_SCALE)) {
+    rules[tag] = {
+      color: "inherit !important",
+      "font-family": "inherit !important",
+      "line-height": "1.25 !important",
+      "font-size": `${scale}em !important`,
+    };
+    // Lo que va dentro de un título hereda el tamaño del título, no el del texto normal
+    rules[`${tag} *`] = { "font-size": "inherit !important" };
+  }
+  return rules;
+}
+
 export function clampFontSize(size: number): number {
   if (!Number.isFinite(size)) return DEFAULT_EPUB_SETTINGS.fontSize;
   const stepped = Math.round(size / FONT_SIZE_STEP) * FONT_SIZE_STEP;

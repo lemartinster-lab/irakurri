@@ -9,6 +9,7 @@ import {
   chapterLabel,
   clampFontSize,
   FONT_SIZE_STEP,
+  buildThemeRules,
   FONT_LABELS,
   FONT_STACKS,
   flattenToc,
@@ -51,22 +52,9 @@ function loadSettings(): EpubSettings {
  * un tema propio de epub.js, porque re-registrar un tema ya inyectado no lo actualiza.
  */
 function applySettings(rendition: Rendition, s: EpubSettings) {
-  const c = THEME_COLORS[s.theme];
-  const name = `irk-${s.theme}-${s.font}-${String(s.lineHeight).replace(".", "_")}`;
-  rendition.themes.register(name, {
-    body: {
-      background: `${c.background} !important`,
-      color: `${c.text} !important`,
-      "font-family": `${FONT_STACKS[s.font]} !important`,
-      "line-height": `${s.lineHeight} !important`,
-    },
-    "p, li, span, div, blockquote, h1, h2, h3, h4, h5, h6, td, th": {
-      color: "inherit !important",
-      "font-family": "inherit !important",
-      "line-height": "inherit !important",
-    },
-    a: { color: `${c.link} !important` },
-  });
+  // v2: el nombre cambia si cambian las reglas, para que epub.js no reutilice las viejas
+  const name = `irk2-${s.theme}-${s.font}-${String(s.lineHeight).replace(".", "_")}`;
+  rendition.themes.register(name, buildThemeRules(s));
   rendition.themes.select(name);
   rendition.themes.fontSize(`${s.fontSize}%`);
 }
